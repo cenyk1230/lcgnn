@@ -136,6 +136,80 @@ def step1_local_clustering(task, name, ego_size=128, num_iter=1000, log_steps=10
     #    ego_graphs_padding = np.vstack(ego_graphs_padding).astype(np.int32)
     #    np.save(f'data/{name}-ego-graphs-padding-{ego_size}.npy', ego_graphs_padding)
 
+def calc_inductive(args):
+    i, log_steps, num_iter, ego_size = args
+    if i % log_steps == 0:
+        print(i)
+    node, ppr = approximate_PageRank(graphlocal, [i], iterations=num_iter, method="acl", normalize=False)
+    d_inv = graphlocal.dn[node]
+    d_inv[d_inv > 1.0] = 1.0
+    ppr_d_inv = ppr * d_inv
+    output = list(zip(node, ppr_d_inv))[:ego_size]
+    node, ppr_d_inv = zip(*sorted(output, key=lambda x: x[1], reverse=True))
+    assert node[0] == i
+    node = np.array(node, dtype=np.int32)
+    conds = my_sweep_cut(graphlocal, node)
+    return node, conds
+
+def calc_inductive_train(args):
+    i, log_steps, num_iter, ego_size = args
+    if i % log_steps == 0:
+        print(i)
+    node, ppr = approximate_PageRank(graphlocal_train, [i], iterations=num_iter, method="acl", normalize=False)
+    d_inv = graphlocal_train.dn[node]
+    d_inv[d_inv > 1.0] = 1.0
+    ppr_d_inv = ppr * d_inv
+    output = list(zip(node, ppr_d_inv))[:ego_size]
+    node, ppr_d_inv = zip(*sorted(output, key=lambda x: x[1], reverse=True))
+    assert node[0] == i
+    node = np.array(node, dtype=np.int32)
+    conds = my_sweep_cut(graphlocal_train, node)
+    return node, conds
+
+def step1_inductive(task, name, ego_size=128, num_iter=1000, log_steps=10000):
+    dataset = create_dataset(name=f'{task}-{name}')
+    data = dataset[0]
+
+    N = data.num_nodes
+    edge_index = data.edge_index
+    edge_index = to_undirected(edge_index)
+    edge_index_train = data.edge_index_train
+    edge_index_train = to_undirected(edge_index_train)
+    adj = csr_matrix((np.ones(edge_index.shape[1]), edge_index), shape=(N, N))
+    adj_train = csr_matrix((np.ones(edge_index_train.shape[1]), edge_index_train), shape=(N, N))
+
+    idx_split = dataset.get_idx_split()
+    train_idx = idx_split["train"].cpu().numpy()
+    valid_idx = idx_split["valid"].cpu().numpy()
+    test_idx = idx_split["test"].cpu().numpy()
+
+    global graphlocal
+    global graphlocal_train
+    graphlocal = GraphLocal.from_sparse_adjacency(adj)
+    graphlocal_train = GraphLocal.from_sparse_adjacency(adj_train)
+    print('graphlocal generated')
+
+    with multiprocessing.Pool(32) as pool:
+        ego_graphs_train, conds_train = zip(*pool.imap(calc_inductive_train, [(i, log_steps, num_iter, ego_size) for i in train_idx], chunksize=512))
+
+    with multiprocessing.Pool(32) as pool:
+        ego_graphs_valid, conds_valid = zip(*pool.imap(calc_inductive, [(i, log_steps, num_iter, ego_size) for i in valid_idx], chunksize=512))
+
+    with multiprocessing.Pool(32) as pool:
+        ego_graphs_test, conds_test = zip(*pool.imap(calc_inductive, [(i, log_steps, num_iter, ego_size) for i in test_idx], chunksize=512))
+
+    ego_graphs = []
+    conds = []
+    ego_graphs.extend(ego_graphs_train)
+    ego_graphs.extend(ego_graphs_valid)
+    ego_graphs.extend(ego_graphs_test)
+    conds.extend(conds_train)
+    conds.extend(conds_valid)
+    conds.extend(conds_test)
+
+    np.save(f"data/{name}-lc-ego-graphs-{ego_size}.npy", ego_graphs)
+    np.save(f"data/{name}-lc-conds-{ego_size}.npy", conds)
+
 def calc2(args):
     adj, ego, ego_size = args
     ego_adj = adj[ego, :][:, ego].tocoo()
@@ -223,9 +297,9 @@ def step3(task, name, ego_size=128, hidden_size=128):
     np.save(f'data/{name}-ego-graphs-gpe-{ego_size}-{hidden_size}.npy', ego_graphs_gpe)
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description='OGB (Preprocessing)')
-    parser.add_argument('--task', type=str, default='ogbn')
-    parser.add_argument('--dataset', type=str, default='arxiv')
+    parser = argparse.ArgumentParser(description='LCGNN (Preprocessing)')
+    parser.add_argument('--task', type=str, default='saint')
+    parser.add_argument('--dataset', type=str, default='flickr')
     parser.add_argument('--ego_size', type=int, default=128)
     parser.add_argument('--hidden_size', type=int, default=128)
     parser.add_argument('--num_iter', type=int, default=1000)
@@ -242,7 +316,8 @@ if __name__ == "__main__":
 
     if args.step == 1:
         #step1(task=args.task, name=args.dataset, ego_size=args.ego_size, num_iter=args.num_iter, log_steps=args.log_steps)
-        step1_local_clustering(task=args.task, name=args.dataset, ego_size=args.ego_size, num_iter=args.num_iter, log_steps=args.log_steps)
+        # step1_local_clustering(task=args.task, name=args.dataset, ego_size=args.ego_size, num_iter=args.num_iter, log_steps=args.log_steps)
+        step1_inductive(task=args.task, name=args.dataset, ego_size=args.ego_size, num_iter=args.num_iter, log_steps=args.log_steps)
     elif args.step == 2:
         step2(task=args.task, name=args.dataset, ego_size=args.ego_size)
     elif args.step == 3:

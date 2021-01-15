@@ -1,3 +1,4 @@
+from mydataset import SAINTDataset
 from ogb.graphproppred import PygGraphPropPredDataset
 from ogb.linkproppred import PygLinkPropPredDataset
 from ogb.nodeproppred import PygNodePropPredDataset
@@ -12,6 +13,9 @@ def create_dataset(name):
             return PygNodePropPredDataset(name)
         else:
             return Planetoid("./dataset", dataset, transform=T.NormalizeFeatures())
+    elif name.startswith("saint"):
+        dataset = name[6:]
+        return SAINTDataset(dataset)
     elif name.startswith("ogbl"):
         return PygLinkPropPredDataset(name)
     elif name.startswith("ogbg"):

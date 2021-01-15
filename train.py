@@ -10,7 +10,7 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 import wandb
-from mydataset import MyNodePropPredDataset
+from mydataset import MyNodePropPredDataset, SAINTDataset
 from ogb.nodeproppred import Evaluator
 # from evalutor import Evaluator
 # from line_profiler import LineProfiler
@@ -191,6 +191,8 @@ def main():
 
     if args.dataset == 'papers100M':
         dataset = MyNodePropPredDataset(name=args.dataset)
+    elif args.dataset in ['flickr', 'yelp', 'amazon']:
+        dataset = SAINTDataset(name=args.dataset)
     else:
         dataset = PygNodePropPredDataset(name=f'ogbn-{args.dataset}')
 
@@ -198,11 +200,13 @@ def main():
     conds_unpadded = np.load(f'data/{args.dataset}-lc-conds-{args.ego_size}.npy', allow_pickle=True)
     ego_graphs = -np.ones((len(ego_graphs_unpadded), args.ego_size), dtype=np.int32)
     cut = np.zeros((len(ego_graphs_unpadded), args.ego_size), dtype=np.float32)
+
     for i, x in enumerate(ego_graphs_unpadded):
+        idx = x[0]
         assert len(x) == len(conds_unpadded[i])
-        ego_graphs[i][:len(x)] = x
+        ego_graphs[idx][:len(x)] = x
         cut_position = np.argmin(conds_unpadded[i])
-        cut[i][:cut_position+1] = 1.0
+        cut[idx][:cut_position+1] = 1.0
 
     ego_graphs = torch.LongTensor(ego_graphs)
     cut = torch.FloatTensor(cut)
@@ -217,6 +221,8 @@ def main():
             pe = pe[:, :args.hidden_size]
 
     data = dataset[0]
+    if len(data.y.shape) == 1:
+        data.y = data.y.unsqueeze(1)
     adj = None
     if args.mask:
         adj = torch.BoolTensor(~np.load(f'data/{args.dataset}-ego-graphs-adj-{args.ego_size}.npy'))
@@ -256,7 +262,7 @@ def main():
     pytorch_total_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     print('model parameters:', pytorch_total_params)
 
-    evaluator = Evaluator(name=f'ogbn-{args.dataset}')
+    evaluator = Evaluator(name=f'ogbn-arxiv')
     logger = Logger(1, args)
 
     if not os.path.exists('runs'):
