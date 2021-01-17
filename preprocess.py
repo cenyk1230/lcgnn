@@ -50,15 +50,12 @@ def calc_local_clustering(args):
     d_inv = graphlocal.dn[node]
     d_inv[d_inv > 1.0] = 1.0
     ppr_d_inv = ppr * d_inv
-    output = list(zip(node, ppr_d_inv, ppr))[:ego_size]
-    node, ppr_d_inv, ppr = zip(*sorted(output, key=lambda x: x[1], reverse=True))
+    output = list(zip(node, ppr_d_inv))[:ego_size]
+    node, ppr_d_inv = zip(*sorted(output, key=lambda x: x[1], reverse=True))
     assert node[0] == i
-    node, ppr_d_inv, ppr = np.array(node, dtype=np.int32), np.array(ppr_d_inv, dtype=np.float), np.array(ppr, dtype=np.float)
+    node = np.array(node, dtype=np.int32)
     conds = my_sweep_cut(graphlocal, node)
-    #cut, conductance = sweep_cut(graphlocal, (node, ppr), do_sort=False)
-    #assert conds[len(cut)-1] == conductance 
-    return node, ppr_d_inv, ppr, conds
-
+    return node, conds
 
 def step1_multigraph(task, name, ego_size=128, num_iter=1000, log_steps=10000):
     dataset = create_dataset(name=f'{task}-{name}')
@@ -124,17 +121,31 @@ def step1_local_clustering(task, name, ego_size=128, num_iter=1000, log_steps=10
     graphlocal = GraphLocal.from_sparse_adjacency(adj)
     print('graphlocal generated')
 
-    ego_graphs = []
-    ego_graphs_padding = []
+    idx_split = dataset.get_idx_split()
+    train_idx = idx_split["train"].cpu().numpy()
+    valid_idx = idx_split["valid"].cpu().numpy()
+    test_idx = idx_split["test"].cpu().numpy()
+
     with multiprocessing.Pool(32) as pool:
-        ego_graphs, ppr_d_inv, ppr, conds = zip(*pool.imap(calc_local_clustering, [(i, log_steps, num_iter, ego_size) for i in range(N)], chunksize=512))
-    np.save(f'data/{name}-lc-ego-graphs-{ego_size}.npy', ego_graphs)
-    # np.save(f'data/{name}-lc-ppr_d_inv-{ego_size}.npy', ppr_d_inv)
-    # np.save(f'data/{name}-lc-ppr-{ego_size}.npy', ppr)
-    np.save(f'data/{name}-lc-conds-{ego_size}.npy', conds)
-    #if ego_size > 0:
-    #    ego_graphs_padding = np.vstack(ego_graphs_padding).astype(np.int32)
-    #    np.save(f'data/{name}-ego-graphs-padding-{ego_size}.npy', ego_graphs_padding)
+        ego_graphs_train, conds_train = zip(*pool.imap(calc_local_clustering, [(i, log_steps, num_iter, ego_size) for i in train_idx], chunksize=512))
+
+    with multiprocessing.Pool(32) as pool:
+        ego_graphs_valid, conds_valid = zip(*pool.imap(calc_local_clustering, [(i, log_steps, num_iter, ego_size) for i in valid_idx], chunksize=512))
+
+    with multiprocessing.Pool(32) as pool:
+        ego_graphs_test, conds_test = zip(*pool.imap(calc_local_clustering, [(i, log_steps, num_iter, ego_size) for i in test_idx], chunksize=512))
+
+    ego_graphs = []
+    conds = []
+    ego_graphs.extend(ego_graphs_train)
+    ego_graphs.extend(ego_graphs_valid)
+    ego_graphs.extend(ego_graphs_test)
+    conds.extend(conds_train)
+    conds.extend(conds_valid)
+    conds.extend(conds_test)
+
+    np.save(f"data/{name}-lc-ego-graphs-{ego_size}.npy", ego_graphs)
+    np.save(f"data/{name}-lc-conds-{ego_size}.npy", conds)
 
 def calc_inductive(args):
     i, log_steps, num_iter, ego_size = args
@@ -319,8 +330,10 @@ if __name__ == "__main__":
 
     if args.step == 1:
         #step1(task=args.task, name=args.dataset, ego_size=args.ego_size, num_iter=args.num_iter, log_steps=args.log_steps)
-        # step1_local_clustering(task=args.task, name=args.dataset, ego_size=args.ego_size, num_iter=args.num_iter, log_steps=args.log_steps)
-        step1_inductive(task=args.task, name=args.dataset, ego_size=args.ego_size, num_iter=args.num_iter, log_steps=args.log_steps)
+        if args.task == 'ogbn':
+            step1_local_clustering(task=args.task, name=args.dataset, ego_size=args.ego_size, num_iter=args.num_iter, log_steps=args.log_steps)
+        else:
+            step1_inductive(task=args.task, name=args.dataset, ego_size=args.ego_size, num_iter=args.num_iter, log_steps=args.log_steps)
     elif args.step == 2:
         step2(task=args.task, name=args.dataset, ego_size=args.ego_size)
     elif args.step == 3:
