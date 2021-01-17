@@ -160,7 +160,7 @@ def main():
     parser.add_argument('--layer_norm', type=int, default=0)
     parser.add_argument('--src_scale', type=int, default=0)
     parser.add_argument('--num_workers', type=int, default=4, help='number of workers')
-    parser.add_argument('--pe_type', type=int, default=1)
+    parser.add_argument('--pe_type', type=int, default=0)
     parser.add_argument('--mask', type=int, default=0)
     parser.add_argument("--optimizer", type=str, default='adamw', choices=['adam', 'adamw'], help="optimizer")
     parser.add_argument('--warmup', type=int, default=10000)
@@ -191,7 +191,7 @@ def main():
 
     if args.dataset == 'papers100M':
         dataset = MyNodePropPredDataset(name=args.dataset)
-    elif args.dataset in ['flickr', 'yelp', 'amazon']:
+    elif args.dataset in ['flickr', 'reddit', 'yelp', 'amazon']:
         dataset = SAINTDataset(name=args.dataset)
     else:
         dataset = PygNodePropPredDataset(name=f'ogbn-{args.dataset}')
@@ -309,7 +309,7 @@ def main():
         loss = train(model, train_loader, device, optimizer, args)
 
         train_output = valid_output = test_output = ''
-        if epoch >= 20 and epoch % args.log_steps == 0:
+        if epoch >= 10 and epoch % args.log_steps == 0:
             valid_acc, valid_loss = test(model, valid_loader, device, evaluator, args, datay, data.num_nodes, split_idx, 'valid', num_classes)
             valid_output = f'Valid: {100 * valid_acc:.2f}% '
 

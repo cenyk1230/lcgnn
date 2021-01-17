@@ -173,8 +173,11 @@ def step1_inductive(task, name, ego_size=128, num_iter=1000, log_steps=10000):
     N = data.num_nodes
     edge_index = data.edge_index
     edge_index = to_undirected(edge_index)
-    edge_index_train = data.edge_index_train
-    edge_index_train = to_undirected(edge_index_train)
+    if hasattr(data, "edge_index_train"):
+        edge_index_train = data.edge_index_train
+        edge_index_train = to_undirected(edge_index_train)
+    else:
+        edge_index_train = edge_index
     adj = csr_matrix((np.ones(edge_index.shape[1]), edge_index), shape=(N, N))
     adj_train = csr_matrix((np.ones(edge_index_train.shape[1]), edge_index_train), shape=(N, N))
 

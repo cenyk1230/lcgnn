@@ -44,8 +44,6 @@ class SAINTDataset(object):
 
     def _load(self, path):
         self.data = torch.load(path)
-        if self.name == "reddit":
-            self.data = self.data[0]
         self.data.num_nodes = self.data.x.shape[0]
         self.train_idx = self.data.train_mask.nonzero().squeeze(1)
         self.val_idx = self.data.val_mask.nonzero().squeeze(1)
