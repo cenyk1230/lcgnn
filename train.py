@@ -203,20 +203,39 @@ def main():
     else:
         dataset = PygNodePropPredDataset(name=f'ogbn-{args.dataset}')
 
+    split_idx = dataset.get_idx_split()
+    train_idx = set(split_idx['train'].cpu().numpy())
+    valid_idx = set(split_idx['valid'].cpu().numpy())
+    test_idx = set(split_idx['test'].cpu().numpy())
+
     ego_graphs_unpadded = np.load(f'data/{args.dataset}-lc-ego-graphs-{args.ego_size}.npy', allow_pickle=True)
     conds_unpadded = np.load(f'data/{args.dataset}-lc-conds-{args.ego_size}.npy', allow_pickle=True)
-    ego_graphs = -np.ones((len(ego_graphs_unpadded), args.ego_size), dtype=np.int32)
-    cut = np.zeros((len(ego_graphs_unpadded), args.ego_size), dtype=np.float32)
+
+    ego_graphs_train, ego_graphs_valid, ego_graphs_test = [], [], []
+    cut_train, cut_valid, cut_test = [], [], []
 
     for i, x in enumerate(ego_graphs_unpadded):
         idx = x[0]
         assert len(x) == len(conds_unpadded[i])
-        ego_graphs[idx][:len(x)] = x
+        ego_graph = -np.ones(args.ego_size, dtype=np.int32)
+        ego_graph[:len(x)] = x
         cut_position = np.argmin(conds_unpadded[i])
-        cut[idx][:cut_position+1] = 1.0
+        cut = np.zeros(args.ego_size, dtype=np.float32)
+        cut[:cut_position+1] = 1.0
+        if idx in train_idx:
+            ego_graphs_train.append(ego_graph)
+            cut_train.append(cut)
+        elif idx in valid_idx:
+            ego_graphs_valid.append(ego_graph)
+            cut_valid.append(cut)
+        elif idx in test_idx:
+            ego_graphs_test.append(ego_graph)
+            cut_test.append(cut)
+        else:
+            print(f"{idx} not in train/valid/test idx")
 
-    ego_graphs = torch.LongTensor(ego_graphs)
-    cut = torch.FloatTensor(cut)
+    ego_graphs_train, ego_graphs_valid, ego_graphs_test = torch.LongTensor(ego_graphs_train), torch.LongTensor(ego_graphs_valid), torch.LongTensor(ego_graphs_test)
+    cut_train, cut_valid, cut_test = torch.FloatTensor(cut_train), torch.FloatTensor(cut_valid), torch.FloatTensor(cut_test)
 
     pe = None
     if args.pe_type == 1:
@@ -234,16 +253,15 @@ def main():
     if args.mask:
         adj = torch.BoolTensor(~np.load(f'data/{args.dataset}-ego-graphs-adj-{args.ego_size}.npy'))
 
-    split_idx = dataset.get_idx_split()
     num_classes = dataset.num_classes
 
-    train_dataset = NodeClassificationDataset(data.x, data.y, ego_graphs[split_idx['train']], pe, args, num_classes, adj, cut[split_idx['train']])
+    train_dataset = NodeClassificationDataset(data.x, data.y, ego_graphs_train, pe, args, num_classes, adj, cut_train)
     train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, num_workers=args.num_workers, collate_fn=batcher(train_dataset), pin_memory=True)
 
-    valid_dataset = NodeClassificationDataset(data.x, data.y, ego_graphs[split_idx['valid']], pe, args, num_classes, adj, cut[split_idx['valid']])
+    valid_dataset = NodeClassificationDataset(data.x, data.y, ego_graphs_valid, pe, args, num_classes, adj, cut_valid)
     valid_loader = DataLoader(valid_dataset, batch_size=args.eval_batch_size, shuffle=False, num_workers=args.num_workers, collate_fn=batcher(valid_dataset), pin_memory=True)
 
-    test_dataset = NodeClassificationDataset(data.x, data.y, ego_graphs[split_idx['test']], pe, args, num_classes, adj, cut[split_idx['test']])
+    test_dataset = NodeClassificationDataset(data.x, data.y, ego_graphs_test, pe, args, num_classes, adj, cut_test)
     test_loader = DataLoader(test_dataset, batch_size=args.eval_batch_size, shuffle=False, num_workers=args.num_workers, collate_fn=batcher(test_dataset), pin_memory=True)
 
     model = TransformerModel(data.x.size(1)+1, args.hidden_size,
