@@ -14,19 +14,6 @@ from torch_geometric.utils import (add_remaining_self_loops,
                                    to_scipy_sparse_matrix, to_undirected)
 
 
-def calc(args):
-    i, log_steps, num_iter, ego_size, weighted = args
-    if i % log_steps == 0:
-        print(i)
-    output = approximate_PageRank_weighted(graphlocal, [i], iterations=num_iter) \
-                if weighted else approximate_PageRank(graphlocal, [i], iterations=num_iter)
-    if ego_size > 0:
-        ego = np.array(output[0][:ego_size], dtype=np.int32)
-        return ego, np.concatenate((ego, [-1] * (ego_size - len(ego))))
-    else:
-        ego = np.array(output[0], dtype=np.int32)
-        return ego, None
-
 def my_sweep_cut(g, node):
     vol_sum = 0.0
     in_edge = 0.0
@@ -57,58 +44,7 @@ def calc_local_clustering(args):
     conds = my_sweep_cut(graphlocal, node)
     return node, conds
 
-def step1_multigraph(task, name, ego_size=128, num_iter=1000, log_steps=10000):
-    dataset = create_dataset(name=f'{task}-{name}')
-    data = dataset[0]
-
-    N = data.num_nodes
-    edge_index = data.edge_index.numpy()
-    assert name == "proteins"
-
-    num_graphs = data.edge_attr.size(-1)
-    for j in range(3, num_graphs):
-        adj = to_scipy_sparse_matrix(
-            edge_index=data.edge_index,
-            edge_attr=data.edge_attr[:, j],
-            num_nodes=data.num_nodes).tocsr()
-
-        global graphlocal
-        graphlocal = GraphLocal.from_sparse_adjacency(adj)
-        print('%d-th graphlocal generated' % j)
-
-        ego_graphs = []
-        ego_graphs_padding = []
-        with multiprocessing.Pool(32) as pool:
-            ego_graphs, ego_graphs_padding = zip(*pool.imap(calc, [(i, log_steps, num_iter, ego_size, True) for i in range(N)], chunksize=512))
-        ego_graphs_padding = np.vstack(ego_graphs_padding).astype(np.int32)
-        np.save(f'data/{name}-ego-graphs-{ego_size}-graph-{j}.npy', ego_graphs)
-        np.save(f'data/{name}-ego-graphs-padding-{ego_size}-graph-{j}.npy', ego_graphs_padding)
-
-
-def step1(task, name, ego_size=128, num_iter=1000, log_steps=10000):
-    dataset = create_dataset(name=f'{task}-{name}')
-    data = dataset[0]
-
-    N = data.num_nodes
-    edge_index = data.edge_index
-    edge_index = to_undirected(edge_index)
-    adj = csr_matrix((np.ones(edge_index.shape[1]), edge_index), shape=(N, N))
-
-    global graphlocal
-    graphlocal = GraphLocal.from_sparse_adjacency(adj)
-    print('graphlocal generated')
-
-    ego_graphs = []
-    ego_graphs_padding = []
-    with multiprocessing.Pool(16) as pool:
-        ego_graphs, ego_graphs_padding = zip(*pool.imap(calc, [(i, log_steps, num_iter, ego_size, False) for i in range(N)], chunksize=512))
-    np.save(f'data/{name}-ego-graphs-{ego_size}.npy', ego_graphs)
-    if ego_size > 0:
-        ego_graphs_padding = np.vstack(ego_graphs_padding).astype(np.int32)
-        np.save(f'data/{name}-ego-graphs-padding-{ego_size}.npy', ego_graphs_padding)
-
-
-def step1_local_clustering(task, name, ego_size=128, num_iter=1000, log_steps=10000):
+def step1_local_clustering(task, name, ego_size=128, num_iter=1000, log_steps=10000, num_workers=16):
     dataset = create_dataset(name=f'{task}-{name}')
     data = dataset[0]
 
@@ -126,13 +62,13 @@ def step1_local_clustering(task, name, ego_size=128, num_iter=1000, log_steps=10
     valid_idx = idx_split["valid"].cpu().numpy()
     test_idx = idx_split["test"].cpu().numpy()
 
-    with multiprocessing.Pool(32) as pool:
+    with multiprocessing.Pool(num_workers) as pool:
         ego_graphs_train, conds_train = zip(*pool.imap(calc_local_clustering, [(i, log_steps, num_iter, ego_size) for i in train_idx], chunksize=512))
 
-    with multiprocessing.Pool(32) as pool:
+    with multiprocessing.Pool(num_workers) as pool:
         ego_graphs_valid, conds_valid = zip(*pool.imap(calc_local_clustering, [(i, log_steps, num_iter, ego_size) for i in valid_idx], chunksize=512))
 
-    with multiprocessing.Pool(32) as pool:
+    with multiprocessing.Pool(num_workers) as pool:
         ego_graphs_test, conds_test = zip(*pool.imap(calc_local_clustering, [(i, log_steps, num_iter, ego_size) for i in test_idx], chunksize=512))
 
     ego_graphs = []
@@ -177,7 +113,7 @@ def calc_inductive_train(args):
     conds = my_sweep_cut(graphlocal_train, node)
     return node, conds
 
-def step1_inductive(task, name, ego_size=128, num_iter=1000, log_steps=10000):
+def step1_inductive(task, name, ego_size=128, num_iter=1000, log_steps=10000, num_workers=16):
     dataset = create_dataset(name=f'{task}-{name}')
     data = dataset[0]
 
@@ -203,13 +139,13 @@ def step1_inductive(task, name, ego_size=128, num_iter=1000, log_steps=10000):
     graphlocal_train = GraphLocal.from_sparse_adjacency(adj_train)
     print('graphlocal generated')
 
-    with multiprocessing.Pool(32) as pool:
+    with multiprocessing.Pool(num_workers) as pool:
         ego_graphs_train, conds_train = zip(*pool.imap(calc_inductive_train, [(i, log_steps, num_iter, ego_size) for i in train_idx], chunksize=512))
 
-    with multiprocessing.Pool(32) as pool:
+    with multiprocessing.Pool(num_workers) as pool:
         ego_graphs_valid, conds_valid = zip(*pool.imap(calc_inductive, [(i, log_steps, num_iter, ego_size) for i in valid_idx], chunksize=512))
 
-    with multiprocessing.Pool(32) as pool:
+    with multiprocessing.Pool(num_workers) as pool:
         ego_graphs_test, conds_test = zip(*pool.imap(calc_inductive, [(i, log_steps, num_iter, ego_size) for i in test_idx], chunksize=512))
 
     ego_graphs = []
@@ -320,6 +256,7 @@ if __name__ == "__main__":
     parser.add_argument('--log_steps', type=int, default=10000)
     parser.add_argument('--step', type=int, default=1)
     parser.add_argument('--seed', type=int, default=0)
+    parser.add_argument('--num_workers', type=int, default=16)
     args = parser.parse_args()
     print(args)
 
@@ -331,9 +268,9 @@ if __name__ == "__main__":
     if args.step == 1:
         #step1(task=args.task, name=args.dataset, ego_size=args.ego_size, num_iter=args.num_iter, log_steps=args.log_steps)
         if args.task == 'ogbn':
-            step1_local_clustering(task=args.task, name=args.dataset, ego_size=args.ego_size, num_iter=args.num_iter, log_steps=args.log_steps)
+            step1_local_clustering(task=args.task, name=args.dataset, ego_size=args.ego_size, num_iter=args.num_iter, log_steps=args.log_steps, num_workers=args.num_workers)
         else:
-            step1_inductive(task=args.task, name=args.dataset, ego_size=args.ego_size, num_iter=args.num_iter, log_steps=args.log_steps)
+            step1_inductive(task=args.task, name=args.dataset, ego_size=args.ego_size, num_iter=args.num_iter, log_steps=args.log_steps, num_workers=args.num_workers)
     elif args.step == 2:
         step2(task=args.task, name=args.dataset, ego_size=args.ego_size)
     elif args.step == 3:

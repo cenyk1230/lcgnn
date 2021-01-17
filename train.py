@@ -95,7 +95,7 @@ def train(model, loader, device, optimizer, args):
         out = model(src, src_mask=src_mask, padding=src_padding, pe=pe_batch)
 
         if args.dataset == 'yelp' or args.dataset == 'amazon':
-            loss = F.binary_cross_entropy_with_logits(out, y)
+            loss = F.binary_cross_entropy_with_logits(out, y.float())
         else:
             loss = F.cross_entropy(out, y)
         loss.backward()
@@ -125,7 +125,7 @@ def test(model, loader, device, args):
     y_true = torch.cat(y_true, dim=0)
 
     if args.dataset == "yelp" or args.dataset == "amazon":
-        loss = F.binary_cross_entropy_with_logits(y_pred, y_true).item()
+        loss = F.binary_cross_entropy_with_logits(y_pred, y_true.float()).item()
         metric = multilabel_f1(y_true, y_pred, sigmoid=False)
     else:
         loss = F.cross_entropy(y_pred, y_true).item()
@@ -280,12 +280,17 @@ def main():
     pytorch_total_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     print('model parameters:', pytorch_total_params)
 
-    logger = Logger(1, args)
+    # logger = Logger(1, args)
 
     if not os.path.exists('runs'):
         os.mkdir('runs')
     if not os.path.exists('saved'):
         os.mkdir('saved')
+
+    if torch.cuda.device_count() > 1:
+        model.module.init_weights()
+    else:
+        model.init_weights()
 
     if args.load_path:
         model.load_state_dict(torch.load(args.load_path, map_location='cuda:0'))
@@ -302,10 +307,6 @@ def main():
         print(train_output + valid_output + test_output)
         return
 
-    if torch.cuda.device_count() > 1:
-        model.module.init_weights()
-    else:
-        model.init_weights()
     best_val_acc = 0
     cor_train_acc = 0
     cor_test_acc = 0
@@ -334,10 +335,10 @@ def main():
 
             if valid_acc > best_val_acc:
                 best_val_acc = valid_acc
-                cor_train_acc, _ = test(model, train_loader, device, args)
+                # cor_train_acc, _ = test(model, train_loader, device, args)
                 cor_test_acc, cor_test_loss = test(model, test_loader, device, args)
-                logger.add_result(0, (cor_train_acc, valid_acc, cor_test_acc))
-                train_output = f'Train: {100 * cor_train_acc:.2f}%, '
+                # logger.add_result(0, (cor_train_acc, valid_acc, cor_test_acc))
+                # train_output = f'Train: {100 * cor_train_acc:.2f}%, '
                 test_output = f'Test: {100 * cor_test_acc:.2f}%'
                 patience = 0
                 try:
@@ -353,17 +354,18 @@ def main():
                 if patience >= args.early_stopping:
                     print('Early stopping...')
                     break
-
+            # 'cor_train_acc': cor_train_acc, 
             wandb.log({'Train Loss': loss, 'Valid Acc': valid_acc, 'best_val_acc': best_val_acc, 
-                        'cor_train_acc': cor_train_acc, 'cor_test_acc': cor_test_acc, 'LR': get_lr(optimizer),
+                        'cor_test_acc': cor_test_acc, 'LR': get_lr(optimizer),
                         'Valid Loss': valid_loss, 'cor_test_loss': cor_test_loss})
         else:
             wandb.log({'Train Loss': loss, 'LR': get_lr(optimizer)})
+        # train_output + 
         print(f'Epoch: {epoch:02d}, '
               f'Loss: {loss:.4f}, ' + 
-              train_output + valid_output + test_output)
+              valid_output + test_output)
 
-    logger.print_statistics()
+    # logger.print_statistics()
 
 
 if __name__ == "__main__":
