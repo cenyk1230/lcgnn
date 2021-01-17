@@ -8,6 +8,7 @@ import torch.nn.functional as F
 from torch import nn
 from torch.utils.data import DataLoader
 from tqdm import tqdm
+from sklearn.metrics import f1_score
 
 import wandb
 from mydataset import MyNodePropPredDataset, SAINTDataset
@@ -61,6 +62,24 @@ def batcher(dataset):
 
     return batcher_dev
 
+def accuracy(y_true, y_pred):
+    y_true = y_true.squeeze().long()
+    preds = y_pred.max(1)[1].type_as(y_true)
+    correct = preds.eq(y_true).double()
+    correct = correct.sum()
+    return correct / len(y_true)
+
+def multilabel_f1(y_true, y_pred, sigmoid=False):
+    if sigmoid:
+        y_pred[y_pred > 0.5] = 1
+        y_pred[y_pred <= 0.5] = 0
+    else:
+        y_pred[y_pred > 0] = 1
+        y_pred[y_pred <= 0] = 0
+    preds = y_pred.cpu().detach()
+    labels = y_true.cpu().float()
+    return f1_score(labels, preds, average="micro")
+
 def train(model, loader, device, optimizer, args):
     model.train()
 
@@ -75,7 +94,7 @@ def train(model, loader, device, optimizer, args):
 
         out = model(src, src_mask=src_mask, padding=src_padding, pe=pe_batch)
 
-        if args.dataset == 'proteins':
+        if args.dataset == 'yelp' or args.dataset == 'amazon':
             loss = F.binary_cross_entropy_with_logits(out, y)
         else:
             loss = F.cross_entropy(out, y)
@@ -86,12 +105,10 @@ def train(model, loader, device, optimizer, args):
     return total_loss / len(loader)
 
 @torch.no_grad()
-def test(model, loader, device, evaluator, args, datay, num_nodes, split_idx, eval_type='valid', num_classes=0):
+def test(model, loader, device, args):
     model.eval()
 
-    y_pred = torch.zeros(num_nodes, 1).long()
-    y_pred = y_pred.to(device)
-    output = torch.zeros(num_nodes, num_classes).to(device)
+    y_pred, y_true = [], []
 
     for batch in tqdm(loader, desc="Iteration"):
         batch = [x.to(device) for x in batch]
@@ -100,31 +117,21 @@ def test(model, loader, device, evaluator, args, datay, num_nodes, split_idx, ev
         pe_batch = batch[-1] if args.pe_type else None
 
         out = model(src, src_mask=src_mask, padding=src_padding, pe=pe_batch)
-        y_pred[batch_idx] = out.argmax(dim=-1, keepdim=True)
-        output[batch_idx] = out
 
-    metric = 'acc'
-    y_train, y_valid, y_test = datay
+        y_pred.append(out)
+        y_true.append(y)
 
-    if eval_type == 'valid':
-        valid_acc = evaluator.eval({
-            'y_true': y_valid,
-            'y_pred': y_pred[split_idx['valid']],
-        })[metric]
-        valid_loss = F.cross_entropy(output[split_idx['valid']], y_valid.squeeze(1)).item()
-        return valid_acc, valid_loss
+    y_pred = torch.cat(y_pred, dim=0)
+    y_true = torch.cat(y_true, dim=0)
 
-    train_acc = evaluator.eval({
-        'y_true': y_train,
-        'y_pred': y_pred[split_idx['train']],
-    })[metric]
-    test_acc = evaluator.eval({
-        'y_true': y_test,
-        'y_pred': y_pred[split_idx['test']],
-    })[metric]
-    train_loss = F.cross_entropy(output[split_idx['train']], y_train.squeeze(1)).item()
-    test_loss = F.cross_entropy(output[split_idx['test']], y_test.squeeze(1)).item()
-    return train_acc, test_acc, train_loss, test_loss
+    if args.dataset == "yelp" or args.dataset == "amazon":
+        loss = F.binary_cross_entropy_with_logits(y_pred, y_true).item()
+        metric = multilabel_f1(y_true, y_pred, sigmoid=False)
+    else:
+        loss = F.cross_entropy(y_pred, y_true).item()
+        metric = accuracy(y_true, y_pred)
+
+    return metric, loss
 
 def get_exp_name(dataset, para_dic, input_exp_name):
     para_name = '_'.join([dataset] + [key + str(value) for key, value in para_dic.items()])
@@ -230,20 +237,13 @@ def main():
     split_idx = dataset.get_idx_split()
     num_classes = dataset.num_classes
 
-    y_train = data.y[split_idx['train']].to(device)
-    y_valid = data.y[split_idx['valid']].to(device)
-    y_test = data.y[split_idx['test']].to(device)
-    y_train, y_valid, y_test = y_train.long(), y_valid.long(), y_test.long()
-    datay = (y_train, y_valid, y_test)
-
     train_dataset = NodeClassificationDataset(data.x, data.y, ego_graphs[split_idx['train']], pe, args, num_classes, adj, cut[split_idx['train']])
     train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, num_workers=args.num_workers, collate_fn=batcher(train_dataset), pin_memory=True)
 
     valid_dataset = NodeClassificationDataset(data.x, data.y, ego_graphs[split_idx['valid']], pe, args, num_classes, adj, cut[split_idx['valid']])
     valid_loader = DataLoader(valid_dataset, batch_size=args.eval_batch_size, shuffle=False, num_workers=args.num_workers, collate_fn=batcher(valid_dataset), pin_memory=True)
 
-    train_test_idx = torch.cat((split_idx['train'], split_idx['test']))
-    test_dataset = NodeClassificationDataset(data.x, data.y, ego_graphs[train_test_idx], pe, args, num_classes, adj, cut[train_test_idx])
+    test_dataset = NodeClassificationDataset(data.x, data.y, ego_graphs[split_idx['test']], pe, args, num_classes, adj, cut[split_idx['test']])
     test_loader = DataLoader(test_dataset, batch_size=args.eval_batch_size, shuffle=False, num_workers=args.num_workers, collate_fn=batcher(test_dataset), pin_memory=True)
 
     model = TransformerModel(data.x.size(1)+1, args.hidden_size,
@@ -262,7 +262,6 @@ def main():
     pytorch_total_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     print('model parameters:', pytorch_total_params)
 
-    evaluator = Evaluator(name=f'ogbn-arxiv')
     logger = Logger(1, args)
 
     if not os.path.exists('runs'):
@@ -273,10 +272,12 @@ def main():
     if args.load_path:
         model.load_state_dict(torch.load(args.load_path, map_location='cuda:0'))
 
-        valid_acc, valid_loss = test(model, valid_loader, device, evaluator, args, datay, data.num_nodes, split_idx, 'valid', num_classes)
+        valid_acc, valid_loss = test(model, valid_loader, device, args)
         valid_output = f'Valid: {100 * valid_acc:.2f}% '
 
-        cor_train_acc, cor_test_acc, cor_train_loss, cor_test_loss = test(model, test_loader, device, evaluator, args, datay, data.num_nodes, split_idx, 'test', num_classes)
+        cor_train_acc, _ = test(model, train_loader, device, args)
+
+        cor_test_acc, cor_test_loss = test(model, test_loader, device, args)
         train_output = f'Train: {100 * cor_train_acc:.2f}%, '
         test_output = f'Test: {100 * cor_test_acc:.2f}%'
 
@@ -310,12 +311,13 @@ def main():
 
         train_output = valid_output = test_output = ''
         if epoch >= 10 and epoch % args.log_steps == 0:
-            valid_acc, valid_loss = test(model, valid_loader, device, evaluator, args, datay, data.num_nodes, split_idx, 'valid', num_classes)
+            valid_acc, valid_loss = test(model, valid_loader, device, args)
             valid_output = f'Valid: {100 * valid_acc:.2f}% '
 
             if valid_acc > best_val_acc:
                 best_val_acc = valid_acc
-                cor_train_acc, cor_test_acc, cor_train_loss, cor_test_loss = test(model, test_loader, device, evaluator, args, datay, data.num_nodes, split_idx, 'test', num_classes)
+                cor_train_acc, _ = test(model, train_loader, device, args)
+                cor_test_acc, cor_test_loss = test(model, test_loader, device, args)
                 logger.add_result(0, (cor_train_acc, valid_acc, cor_test_acc))
                 train_output = f'Train: {100 * cor_train_acc:.2f}%, '
                 test_output = f'Test: {100 * cor_test_acc:.2f}%'
