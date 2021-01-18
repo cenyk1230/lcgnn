@@ -1,0 +1,36 @@
+program: train.py
+method: bayes
+metric:
+  name: best_val_acc
+  goal: maximize
+parameters:
+  dataset:
+    values: ['amazon']
+  ego_size:
+    values: [64, 128]
+  hidden_size:
+    values: [64, 128]
+  log_steps:
+    values: [1]
+  early_stopping:
+    values: [50]
+  batch_size:
+    values: [512]
+  input_dropout:
+    values: [0.1, 0.2, 0.3]
+  hidden_dropout:
+    values: [0.2, 0.3, 0.4]
+  layer_norm:
+    values: [0, 1]
+  num_layers:
+    values: [3, 4, 5]
+  num_heads:
+    values: [1, 2, 4]
+  epochs:
+    values: [500]
+  lr:
+    values: [0.0005]
+  weight_decay:
+    values: [0.05, 0.005, 0.0005]
+  warmup:
+    values: [0, 10000, 40000]
