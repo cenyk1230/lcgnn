@@ -12,10 +12,7 @@ from sklearn.metrics import f1_score
 
 import wandb
 from mydataset import MyNodePropPredDataset, SAINTDataset
-from ogb.nodeproppred import Evaluator
-# from evalutor import Evaluator
 # from line_profiler import LineProfiler
-from logger import Logger
 from ogb.nodeproppred import PygNodePropPredDataset
 from optim_schedule import ScheduledOptim
 from transformer import TransformerModel
@@ -158,10 +155,10 @@ def main():
     parser.add_argument('--input_dropout', type=float, default=0.2)
     parser.add_argument('--hidden_dropout', type=float, default=0.4)
     parser.add_argument('--weight_decay', type=float, default=0.05)
-    parser.add_argument('--lr', type=float, default=0.001)
+    parser.add_argument('--lr', type=float, default=0.0005)
     parser.add_argument('--lr_scale', type=float, default=1.0)
     parser.add_argument('--epochs', type=int, default=500)
-    parser.add_argument('--early_stopping', type=int, default=100)
+    parser.add_argument('--early_stopping', type=int, default=50)
     parser.add_argument('--batch_size', type=int, default=512)
     parser.add_argument('--eval_batch_size', type=int, default=2048)
     parser.add_argument('--layer_norm', type=int, default=0)
@@ -280,7 +277,6 @@ def main():
     pytorch_total_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     print('model parameters:', pytorch_total_params)
 
-    # logger = Logger(1, args)
 
     if not os.path.exists('runs'):
         os.mkdir('runs')
@@ -337,7 +333,6 @@ def main():
                 best_val_acc = valid_acc
                 # cor_train_acc, _ = test(model, train_loader, device, args)
                 cor_test_acc, cor_test_loss = test(model, test_loader, device, args)
-                # logger.add_result(0, (cor_train_acc, valid_acc, cor_test_acc))
                 # train_output = f'Train: {100 * cor_train_acc:.2f}%, '
                 test_output = f'Test: {100 * cor_test_acc:.2f}%'
                 patience = 0
@@ -365,7 +360,6 @@ def main():
               f'Loss: {loss:.4f}, ' + 
               valid_output + test_output)
 
-    # logger.print_statistics()
 
 
 if __name__ == "__main__":
