@@ -31,6 +31,6 @@ parameters:
   lr:
     values: [0.0005]
   weight_decay:
-    values: [0.05, 0.005, 0.0005]
+    values: [0.005, 0.0005, 0.0]
   warmup:
-    values: [0, 10000, 40000]
+    values: [0, 4000, 10000]

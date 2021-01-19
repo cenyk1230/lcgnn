@@ -1,62 +1,67 @@
 import argparse
 import os
 
+import dgl
 import numpy as np
 import torch
 import torch.nn.functional as F
-from torch import nn
+from ogb.nodeproppred import DglNodePropPredDataset
+from sklearn.metrics import f1_score
 from torch.utils.data import DataLoader
 from tqdm import tqdm
-from sklearn.metrics import f1_score
 
 import wandb
-from mydataset import MyNodePropPredDataset, SAINTDataset
+from gnn import GNNModel
 # from line_profiler import LineProfiler
-from ogb.nodeproppred import PygNodePropPredDataset
+from mydataset import MyNodePropPredDataset, SAINTDataset
 from optim_schedule import ScheduledOptim
-from transformer import TransformerModel
 
 
 class NodeClassificationDataset(torch.utils.data.Dataset):
-    def __init__(self, x, y, ego_graphs, pe, args, num_classes, adj=None, cut=None):
-        super(NodeClassificationDataset).__init__()
-        self.x = x
-        self.y = y
+    def __init__(self, dgl_data, ego_graphs, cut):
+        self.graph = dgl_data[0]
+        self.label = dgl_data[1]
+        
         self.ego_graphs = ego_graphs
-        self.pe = pe
-        self.args = args
-        self.num_classes = num_classes
-        self.adj = adj
         self.cut = cut
+
+    def __getitem__(self, idx):
+        nids = self.ego_graphs[idx]
+        # assert nids[0] == ego
+        subg = self.graph.subgraph(nids)
+        label = self.label[nids[0]]
+        """
+        n = subg.number_of_nodes()
+        src, dst = subg.edges(form="uv", order="eid")
+        src, dst = src.numpy(), dst.numpy()
+        nfeat = [subg.ndata['nfeat'], ]
+        for i in range(subg.edata['feat'].size(-1)):
+            w = subg.edata['feat'][:, i].numpy()
+            adj = sp.coo_matrix((w, (src, dst)), shape=(n, n))
+            laplacian = sp.csgraph.laplacian(adj, normed=True)
+            diag = laplacian.diagonal()
+            laplacian = sp.diags(diag) - laplacian
+            k = min(n - 2, self.hidden_size)
+            x = eigen_decomposision(n, k, laplacian, self.hidden_size, retry=10)
+            x = torch.tensor(x).float()
+            nfeat.append(x)
+        subg.ndata['nfeat'] = torch.cat(nfeat, dim=-1)
+        """
+        return subg, label
 
     def __len__(self):
         return len(self.ego_graphs)
 
-    def __getitem__(self, idx):
-        return idx
+def batcher():
+    def batcher_gnn(batch):
+        graph, label = zip(*batch)
+        graph = dgl.batch(graph)
+        label = torch.stack(label).long()
 
-def batcher(dataset):
-    def batcher_dev(idx):
-        idx = torch.LongTensor(idx)
-        src = dataset.ego_graphs[idx]
-        batch_idx = src[:, 0]
-        src_padding = (src == -1)
-        src[src_padding] = 0
-        shape = src.shape
+        return graph, label
 
-        src_mask = [torch.repeat_interleave(dataset.adj[idx], dataset.args.num_heads, dim=0)] if dataset.adj is not None else []
-        pe_batch = [dataset.pe[src.view(-1)].view(shape[0], shape[1], -1)] if dataset.pe is not None else []
+    return batcher_gnn
 
-        src = dataset.x[src.view(-1)].view(shape[0], shape[1], -1)
-        y = dataset.y.squeeze(1)[batch_idx].long()
-
-        cut = dataset.cut[idx].unsqueeze(-1)
-
-        src = torch.cat((src, cut), dim=-1)
-
-        return [src, src_padding, batch_idx, y] + src_mask + pe_batch
-
-    return batcher_dev
 
 def accuracy(y_true, y_pred):
     y_true = y_true.squeeze().long()
@@ -84,16 +89,15 @@ def train(model, loader, device, optimizer, args):
         optimizer.zero_grad()
 
         batch = [x.to(device) for x in batch]
-        src, src_padding, _, y = batch[:4]
-        src_mask = batch[4] if args.mask else None
-        pe_batch = batch[-1] if args.pe_type else None
+        g, y = batch
 
-        out = model(src, src_mask=src_mask, padding=src_padding, pe=pe_batch)
+        out = model(g)
 
         if args.dataset == 'yelp' or args.dataset == 'amazon':
             loss = F.binary_cross_entropy_with_logits(out, y.float())
         else:
-            loss = F.cross_entropy(out, y)
+            loss = F.cross_entropy(out, y.squeeze(1))
+
         loss.backward()
         optimizer.step()
         total_loss += loss.item()
@@ -108,11 +112,9 @@ def test(model, loader, device, args):
 
     for batch in tqdm(loader, desc="Iteration"):
         batch = [x.to(device) for x in batch]
-        src, src_padding, batch_idx, y = batch[:4]
-        src_mask = batch[4] if args.mask else None
-        pe_batch = batch[-1] if args.pe_type else None
+        g, y = batch
 
-        out = model(src, src_mask=src_mask, padding=src_padding, pe=pe_batch)
+        out = model(g)
 
         y_pred.append(out)
         y_true.append(y)
@@ -124,10 +126,11 @@ def test(model, loader, device, args):
         loss = F.binary_cross_entropy_with_logits(y_pred, y_true.float()).item()
         metric = multilabel_f1(y_true, y_pred, sigmoid=False)
     else:
-        loss = F.cross_entropy(y_pred, y_true).item()
+        loss = F.cross_entropy(y_pred, y_true.squeeze(1)).item()
         metric = accuracy(y_true, y_pred)
 
     return metric, loss
+
 
 def get_exp_name(dataset, para_dic, input_exp_name):
     para_name = '_'.join([dataset] + [key + str(value) for key, value in para_dic.items()])
@@ -143,27 +146,26 @@ def main():
     parser = argparse.ArgumentParser(description='OGBN (GNN)')
     parser.add_argument('--device', type=int, default=0)
     parser.add_argument('--dataset', type=str, default='arxiv')
+    parser.add_argument('--model', type=str, default='gcn')
     parser.add_argument('--log_steps', type=int, default=1)
     parser.add_argument('--num_layers', type=int, default=4)
     parser.add_argument('--num_heads', type=int, default=2)
     parser.add_argument('--ego_size', type=int, default=64)
     parser.add_argument('--hidden_size', type=int, default=64)
-    parser.add_argument('--input_dropout', type=float, default=0.2)
     parser.add_argument('--hidden_dropout', type=float, default=0.4)
-    parser.add_argument('--weight_decay', type=float, default=0.05)
-    parser.add_argument('--lr', type=float, default=0.0005)
+    parser.add_argument('--weight_decay', type=float, default=0.0005)
+    parser.add_argument('--lr', type=float, default=0.001)
     parser.add_argument('--lr_scale', type=float, default=1.0)
     parser.add_argument('--epochs', type=int, default=500)
-    parser.add_argument('--early_stopping', type=int, default=50)
+    parser.add_argument('--early_stopping', type=int, default=20)
     parser.add_argument('--batch_size', type=int, default=512)
     parser.add_argument('--eval_batch_size', type=int, default=2048)
-    parser.add_argument('--layer_norm', type=int, default=0)
-    parser.add_argument('--src_scale', type=int, default=0)
+    parser.add_argument('--batch_norm', type=int, default=1)
+    parser.add_argument('--residual', type=int, default=1)
+    parser.add_argument('--linear_layer', type=int, default=1)
     parser.add_argument('--num_workers', type=int, default=4, help='number of workers')
-    parser.add_argument('--pe_type', type=int, default=0)
-    parser.add_argument('--mask', type=int, default=0)
     parser.add_argument("--optimizer", type=str, default='adamw', choices=['adam', 'adamw'], help="optimizer")
-    parser.add_argument('--warmup', type=int, default=10000)
+    parser.add_argument('--warmup', type=int, default=0)
     parser.add_argument('--seed', type=int, default=0)
     parser.add_argument('--load_path', type=str, default='')
     parser.add_argument('--exp_name', type=str, default='')
@@ -174,12 +176,11 @@ def main():
     torch.manual_seed(args.seed)
     torch.cuda.manual_seed(args.seed)
 
-    para_dic = {'nl': args.num_layers, 'nh': args.num_heads, 'es': args.ego_size, 'hs': args.hidden_size,
-                'id': args.input_dropout, 'hd': args.hidden_dropout, 'bs': args.batch_size, 'pe': args.pe_type, 
-                'op': args.optimizer, 'lr': args.lr, 'wd': args.weight_decay, 'ls': args.lr_scale, 
-                'ln': args.layer_norm, 'sc': args.src_scale, 'sd': args.seed}
+    para_dic = {'': args.model, 'nl': args.num_layers, 'nh': args.num_heads, 'es': args.ego_size, 'hs': args.hidden_size,
+                'hd': args.hidden_dropout, 'bs': args.batch_size, 'op': args.optimizer, 
+                'lr': args.lr, 'wd': args.weight_decay, 'ls': args.lr_scale, 'bn': args.batch_norm, 
+                'rs': args.residual, 'll': args.linear_layer, 'sd': args.seed}
     para_dic['warm'] = args.warmup
-    para_dic['mask'] = args.mask
     exp_name = get_exp_name(args.dataset, para_dic, args.exp_name)
 
     wandb_name = exp_name.replace('_sd'+str(args.seed), '')
@@ -194,7 +195,7 @@ def main():
     elif args.dataset in ['flickr', 'reddit', 'yelp', 'amazon']:
         dataset = SAINTDataset(name=args.dataset)
     else:
-        dataset = PygNodePropPredDataset(name=f'ogbn-{args.dataset}')
+        dataset = DglNodePropPredDataset(name=f'ogbn-{args.dataset}')
 
     split_idx = dataset.get_idx_split()
     train_idx = set(split_idx['train'].cpu().numpy())
@@ -207,11 +208,9 @@ def main():
     ego_graphs_train, ego_graphs_valid, ego_graphs_test = [], [], []
     cut_train, cut_valid, cut_test = [], [], []
 
-    for i, x in enumerate(ego_graphs_unpadded):
-        idx = x[0]
-        assert len(x) == len(conds_unpadded[i])
-        ego_graph = -np.ones(args.ego_size, dtype=np.int32)
-        ego_graph[:len(x)] = x
+    for i, ego_graph in enumerate(ego_graphs_unpadded):
+        idx = ego_graph[0]
+        assert len(ego_graph) == len(conds_unpadded[i])
         cut_position = np.argmin(conds_unpadded[i])
         cut = np.zeros(args.ego_size, dtype=np.float32)
         cut[:cut_position+1] = 1.0
@@ -227,48 +226,48 @@ def main():
         else:
             print(f"{idx} not in train/valid/test idx")
 
-    ego_graphs_train, ego_graphs_valid, ego_graphs_test = torch.LongTensor(ego_graphs_train), torch.LongTensor(ego_graphs_valid), torch.LongTensor(ego_graphs_test)
-    cut_train, cut_valid, cut_test = torch.FloatTensor(cut_train), torch.FloatTensor(cut_valid), torch.FloatTensor(cut_test)
-
-    pe = None
-    if args.pe_type == 1:
-        pe = torch.load(f'data/{args.dataset}-embedding-{args.hidden_size}.pt')
-    elif args.pe_type == 2:
-        pe = np.fromfile("data/paper100m.pro", dtype=np.float32).reshape(-1, 128)
-        pe = torch.FloatTensor(pe)
-        if args.hidden_size < 128:
-            pe = pe[:, :args.hidden_size]
-
-    data = dataset[0]
-    if len(data.y.shape) == 1:
-        data.y = data.y.unsqueeze(1)
-    adj = None
-    if args.mask:
-        adj = torch.BoolTensor(~np.load(f'data/{args.dataset}-ego-graphs-adj-{args.ego_size}.npy'))
-
     num_classes = dataset.num_classes
 
-    train_dataset = NodeClassificationDataset(data.x, data.y, ego_graphs_train, pe, args, num_classes, adj, cut_train)
-    train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, num_workers=args.num_workers, collate_fn=batcher(train_dataset), pin_memory=True)
+    if isinstance(dataset, DglNodePropPredDataset):
+        data = dataset[0]
+        graph = dgl.remove_self_loop(data[0])
+        graph = dgl.add_self_loop(graph)
+        if args.dataset == 'arxiv' or args.dataset == 'papers100M':
+            temp_graph = dgl.to_bidirected(graph)
+            temp_graph.ndata['feat'] = graph.ndata['feat']
+            graph = temp_graph
+        data = (graph, data[1].long())
 
-    valid_dataset = NodeClassificationDataset(data.x, data.y, ego_graphs_valid, pe, args, num_classes, adj, cut_valid)
-    valid_loader = DataLoader(valid_dataset, batch_size=args.eval_batch_size, shuffle=False, num_workers=args.num_workers, collate_fn=batcher(valid_dataset), pin_memory=True)
+        graph = data[0]
+        graph.ndata['labels'] = data[1]
+    elif isinstance(dataset, SAINTDataset):
+        data = dataset[0]
+        edge_index = data.edge_index
+        graph = dgl.DGLGraph((edge_index[0], edge_index[1]))
+        graph = dgl.remove_self_loop(graph)
+        graph = dgl.add_self_loop(graph)
+        graph.ndata['feat'] = data.x
+        label = data.y
+        if len(label.shape) == 1:
+            label = label.unsqueeze(1)
+        data = (graph, label)
+    else:
+        raise NotImplementedError
 
-    test_dataset = NodeClassificationDataset(data.x, data.y, ego_graphs_test, pe, args, num_classes, adj, cut_test)
-    test_loader = DataLoader(test_dataset, batch_size=args.eval_batch_size, shuffle=False, num_workers=args.num_workers, collate_fn=batcher(test_dataset), pin_memory=True)
+    train_dataset = NodeClassificationDataset(data, ego_graphs_train, cut_train)
+    train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, num_workers=args.num_workers, collate_fn=batcher(), pin_memory=True)
 
-    model = TransformerModel(data.x.size(1)+1, args.hidden_size,
-                             args.num_heads, args.hidden_size,
-                             args.num_layers, num_classes, 
-                             args.input_dropout, args.hidden_dropout,
-                             layer_norm=args.layer_norm, 
-                             src_scale=args.src_scale).to(device)
+    valid_dataset = NodeClassificationDataset(data, ego_graphs_valid, cut_valid)
+    valid_loader = DataLoader(valid_dataset, batch_size=args.eval_batch_size, shuffle=False, num_workers=args.num_workers, collate_fn=batcher(), pin_memory=True)
+
+    test_dataset = NodeClassificationDataset(data, ego_graphs_test, cut_test)
+    test_loader = DataLoader(test_dataset, batch_size=args.eval_batch_size, shuffle=False, num_workers=args.num_workers, collate_fn=batcher(), pin_memory=True)
+
+    model = GNNModel(conv_type=args.model, input_size=graph.ndata['feat'].shape[1], hidden_size=args.hidden_size, num_layers=args.num_layers, 
+                     num_classes=num_classes, batch_norm=args.batch_norm, residual=args.residual, 
+                     dropout=args.hidden_dropout, linear_layer=args.linear_layer, num_heads=args.num_heads).to(device)
+
     wandb.watch(model, log='all')
-
-    if torch.cuda.device_count() > 1:
-        print("Let's use", torch.cuda.device_count(), "GPUs!")
-        # dim = 0 [30, xxx] -> [10, ...], [10, ...], [10, ...] on 3 GPUs
-        model = nn.DataParallel(model)
 
     pytorch_total_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     print('model parameters:', pytorch_total_params)
@@ -276,10 +275,7 @@ def main():
     if not os.path.exists('saved'):
         os.mkdir('saved')
 
-    if torch.cuda.device_count() > 1:
-        model.module.init_weights()
-    else:
-        model.init_weights()
+    model.reset_parameters()
 
     if args.load_path:
         model.load_state_dict(torch.load(args.load_path, map_location='cuda:0'))
@@ -318,7 +314,7 @@ def main():
         loss = train(model, train_loader, device, optimizer, args)
 
         train_output = valid_output = test_output = ''
-        if epoch >= 10 and epoch % args.log_steps == 0:
+        if epoch % args.log_steps == 0:
             valid_acc, valid_loss = test(model, valid_loader, device, args)
             valid_output = f'Valid: {100 * valid_acc:.2f}% '
 
@@ -330,10 +326,7 @@ def main():
                 test_output = f'Test: {100 * cor_test_acc:.2f}%'
                 patience = 0
                 try:
-                    if torch.cuda.device_count() > 1:
-                        torch.save(model.module.state_dict(), 'saved/' + exp_name + '.pt')
-                    else:
-                        torch.save(model.state_dict(), 'saved/' + exp_name + '.pt')
+                    torch.save(model.state_dict(), 'saved/' + exp_name + '.pt')
                     wandb.save('saved/' + exp_name + '.pt')
                 except FileNotFoundError as e:
                     print(e)
@@ -352,7 +345,6 @@ def main():
         print(f'Epoch: {epoch:02d}, '
               f'Loss: {loss:.4f}, ' + 
               valid_output + test_output)
-
 
 
 if __name__ == "__main__":
