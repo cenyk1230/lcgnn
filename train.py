@@ -13,7 +13,7 @@ import wandb
 from mydataset import MyNodePropPredDataset, SAINTDataset
 # from line_profiler import LineProfiler
 from ogb.nodeproppred import PygNodePropPredDataset
-from optim_schedule import ScheduledOptim
+from optim_schedule import NoamOptim, LinearOptim
 from transformer import TransformerModel
 
 
@@ -151,8 +151,7 @@ def main():
     parser.add_argument('--input_dropout', type=float, default=0.2)
     parser.add_argument('--hidden_dropout', type=float, default=0.4)
     parser.add_argument('--weight_decay', type=float, default=0.05)
-    parser.add_argument('--lr', type=float, default=0.0005)
-    parser.add_argument('--lr_scale', type=float, default=1.0)
+    parser.add_argument('--lr', type=float, default=0.001)
     parser.add_argument('--epochs', type=int, default=500)
     parser.add_argument('--early_stopping', type=int, default=50)
     parser.add_argument('--batch_size', type=int, default=512)
@@ -176,7 +175,7 @@ def main():
 
     para_dic = {'nl': args.num_layers, 'nh': args.num_heads, 'es': args.ego_size, 'hs': args.hidden_size,
                 'id': args.input_dropout, 'hd': args.hidden_dropout, 'bs': args.batch_size, 'pe': args.pe_type, 
-                'op': args.optimizer, 'lr': args.lr, 'wd': args.weight_decay, 'ls': args.lr_scale, 
+                'op': args.optimizer, 'lr': args.lr, 'wd': args.weight_decay,
                 'ln': args.layer_norm, 'sc': args.src_scale, 'sd': args.seed}
     para_dic['warm'] = args.warmup
     para_dic['mask'] = args.mask
@@ -308,7 +307,7 @@ def main():
     else:
         raise NotImplementedError
     if args.warmup > 0:
-        optimizer = ScheduledOptim(optimizer, args.hidden_size if args.hidden_size > 0 else data.x.size(1), n_warmup_steps=args.warmup, init_lr_scale=args.lr_scale)
+        optimizer = NoamOptim(optimizer, args.hidden_size if args.hidden_size > 0 else data.x.size(1), n_warmup_steps=args.warmup, init_lr=args.lr)
 
     for epoch in range(1, 1 + args.epochs):
         # lp = LineProfiler()

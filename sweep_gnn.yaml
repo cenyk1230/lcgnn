@@ -1,0 +1,36 @@
+program: train_gnn.py
+method: random
+metric:
+  name: best_val_acc
+  goal: maximize
+parameters:
+  dataset:
+    values: ['flickr']
+  model:
+    values: ['gcn', 'gat', 'sage']
+  ego_size:
+    values: [64, 128]
+  hidden_size:
+    values: [64, 128]
+  log_steps:
+    values: [1]
+  early_stopping:
+    values: [20]
+  batch_size:
+    values: [512]
+  hidden_dropout:
+    values: [0.1, 0.2, 0.3]
+  batch_norm:
+    values: [0, 1]
+  num_layers:
+    values: [3, 4, 5]
+  num_heads:
+    values: [1]
+  epochs:
+    values: [500]
+  lr:
+    values: [0.001, 0.005, 0.01]
+  weight_decay:
+    values: [0.005, 0.0005, 0.0]
+  warmup:
+    values: [0]

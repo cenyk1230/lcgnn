@@ -14,7 +14,7 @@ import wandb
 from gnn import GNNModel
 # from line_profiler import LineProfiler
 from mydataset import MyNodePropPredDataset, SAINTDataset
-from optim_schedule import ScheduledOptim
+from optim_schedule import NoamOptim
 
 
 class NodeClassificationDataset(torch.utils.data.Dataset):
@@ -149,13 +149,12 @@ def main():
     parser.add_argument('--model', type=str, default='gcn')
     parser.add_argument('--log_steps', type=int, default=1)
     parser.add_argument('--num_layers', type=int, default=4)
-    parser.add_argument('--num_heads', type=int, default=2)
+    parser.add_argument('--num_heads', type=int, default=1)
     parser.add_argument('--ego_size', type=int, default=64)
     parser.add_argument('--hidden_size', type=int, default=64)
     parser.add_argument('--hidden_dropout', type=float, default=0.4)
     parser.add_argument('--weight_decay', type=float, default=0.0005)
     parser.add_argument('--lr', type=float, default=0.001)
-    parser.add_argument('--lr_scale', type=float, default=1.0)
     parser.add_argument('--epochs', type=int, default=500)
     parser.add_argument('--early_stopping', type=int, default=20)
     parser.add_argument('--batch_size', type=int, default=512)
@@ -178,7 +177,7 @@ def main():
 
     para_dic = {'': args.model, 'nl': args.num_layers, 'nh': args.num_heads, 'es': args.ego_size, 'hs': args.hidden_size,
                 'hd': args.hidden_dropout, 'bs': args.batch_size, 'op': args.optimizer, 
-                'lr': args.lr, 'wd': args.weight_decay, 'ls': args.lr_scale, 'bn': args.batch_norm, 
+                'lr': args.lr, 'wd': args.weight_decay, 'bn': args.batch_norm, 
                 'rs': args.residual, 'll': args.linear_layer, 'sd': args.seed}
     para_dic['warm'] = args.warmup
     exp_name = get_exp_name(args.dataset, para_dic, args.exp_name)
@@ -304,7 +303,7 @@ def main():
     else:
         raise NotImplementedError
     if args.warmup > 0:
-        optimizer = ScheduledOptim(optimizer, args.hidden_size if args.hidden_size > 0 else data.x.size(1), n_warmup_steps=args.warmup, init_lr_scale=args.lr_scale)
+        optimizer = NoamOptim(optimizer, args.hidden_size if args.hidden_size > 0 else data.x.size(1), n_warmup_steps=args.warmup, init_lr=args.lr)
 
     for epoch in range(1, 1 + args.epochs):
         # lp = LineProfiler()
