@@ -24,18 +24,13 @@ class NodeClassificationDataset(torch.utils.data.Dataset):
         
         self.ego_graphs = ego_graphs
         self.cut = cut
-        self.cached = {}
 
     def __getitem__(self, idx):
-        if idx in self.cached:
-            return self.cached[idx]
-
         nids = self.ego_graphs[idx]
         subg = self.graph.subgraph(nids)
         nfeat = [subg.ndata['feat'], self.cut[idx]]
         subg.ndata['feat'] = torch.cat(nfeat, dim=-1)
         label = self.label[nids[0]]
-        self.cached[idx] = (subg, label)
 
         return subg, label
 
