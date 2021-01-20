@@ -7,21 +7,23 @@ parameters:
   dataset:
     values: ['flickr']
   model:
-    values: ['gcn', 'gat', 'sage']
+    values: ['gcn']
   ego_size:
     values: [64, 128]
   hidden_size:
-    values: [64, 128]
+    values: [128, 256]
   log_steps:
     values: [1]
   early_stopping:
     values: [20]
   batch_size:
+    values: [256]
+  eval_batch_size:
     values: [512]
   hidden_dropout:
     values: [0.1, 0.2, 0.3]
   batch_norm:
-    values: [0, 1]
+    values: [1]
   num_layers:
     values: [3, 4, 5]
   num_heads:

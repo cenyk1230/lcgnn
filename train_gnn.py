@@ -24,29 +24,19 @@ class NodeClassificationDataset(torch.utils.data.Dataset):
         
         self.ego_graphs = ego_graphs
         self.cut = cut
+        self.cached = {}
 
     def __getitem__(self, idx):
+        if idx in self.cached:
+            return self.cached[idx]
+
         nids = self.ego_graphs[idx]
-        # assert nids[0] == ego
         subg = self.graph.subgraph(nids)
+        nfeat = [subg.ndata['feat'], self.cut[idx]]
+        subg.ndata['feat'] = torch.cat(nfeat, dim=-1)
         label = self.label[nids[0]]
-        """
-        n = subg.number_of_nodes()
-        src, dst = subg.edges(form="uv", order="eid")
-        src, dst = src.numpy(), dst.numpy()
-        nfeat = [subg.ndata['nfeat'], ]
-        for i in range(subg.edata['feat'].size(-1)):
-            w = subg.edata['feat'][:, i].numpy()
-            adj = sp.coo_matrix((w, (src, dst)), shape=(n, n))
-            laplacian = sp.csgraph.laplacian(adj, normed=True)
-            diag = laplacian.diagonal()
-            laplacian = sp.diags(diag) - laplacian
-            k = min(n - 2, self.hidden_size)
-            x = eigen_decomposision(n, k, laplacian, self.hidden_size, retry=10)
-            x = torch.tensor(x).float()
-            nfeat.append(x)
-        subg.ndata['nfeat'] = torch.cat(nfeat, dim=-1)
-        """
+        self.cached[idx] = (subg, label)
+
         return subg, label
 
     def __len__(self):
@@ -157,8 +147,8 @@ def main():
     parser.add_argument('--lr', type=float, default=0.001)
     parser.add_argument('--epochs', type=int, default=500)
     parser.add_argument('--early_stopping', type=int, default=20)
-    parser.add_argument('--batch_size', type=int, default=512)
-    parser.add_argument('--eval_batch_size', type=int, default=2048)
+    parser.add_argument('--batch_size', type=int, default=256)
+    parser.add_argument('--eval_batch_size', type=int, default=512)
     parser.add_argument('--batch_norm', type=int, default=1)
     parser.add_argument('--residual', type=int, default=1)
     parser.add_argument('--linear_layer', type=int, default=1)
@@ -211,8 +201,9 @@ def main():
         idx = ego_graph[0]
         assert len(ego_graph) == len(conds_unpadded[i])
         cut_position = np.argmin(conds_unpadded[i])
-        cut = np.zeros(args.ego_size, dtype=np.float32)
+        cut = torch.zeros(len(ego_graph), dtype=torch.float32)
         cut[:cut_position+1] = 1.0
+        cut = cut.unsqueeze(1)
         if idx in train_idx:
             ego_graphs_train.append(ego_graph)
             cut_train.append(cut)
@@ -262,7 +253,7 @@ def main():
     test_dataset = NodeClassificationDataset(data, ego_graphs_test, cut_test)
     test_loader = DataLoader(test_dataset, batch_size=args.eval_batch_size, shuffle=False, num_workers=args.num_workers, collate_fn=batcher(), pin_memory=True)
 
-    model = GNNModel(conv_type=args.model, input_size=graph.ndata['feat'].shape[1], hidden_size=args.hidden_size, num_layers=args.num_layers, 
+    model = GNNModel(conv_type=args.model, input_size=graph.ndata['feat'].shape[1]+1, hidden_size=args.hidden_size, num_layers=args.num_layers, 
                      num_classes=num_classes, batch_norm=args.batch_norm, residual=args.residual, 
                      dropout=args.hidden_dropout, linear_layer=args.linear_layer, num_heads=args.num_heads).to(device)
 
