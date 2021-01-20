@@ -1,5 +1,5 @@
 program: train_gnn.py
-method: random
+method: bayes
 metric:
   name: best_val_acc
   goal: maximize
@@ -11,7 +11,7 @@ parameters:
   ego_size:
     values: [64, 128]
   hidden_size:
-    values: [128, 256]
+    values: [128, 256, 512]
   log_steps:
     values: [1]
   early_stopping:
@@ -31,7 +31,7 @@ parameters:
   epochs:
     values: [500]
   lr:
-    values: [0.001, 0.005, 0.01]
+    values: [0.001, 0.01]
   weight_decay:
     values: [0.005, 0.0005, 0.0]
   warmup:
