@@ -68,6 +68,7 @@ class GNNModel(nn.Module):
         hidden_size=64,
         num_layers=2,
         num_classes=40,
+        idropout=0.0,
         dropout=0.0,
         batch_norm=False,
         residual=False,
@@ -76,6 +77,7 @@ class GNNModel(nn.Module):
         num_heads=1,
     ):
         super(GNNModel, self).__init__()
+        self.dropout = nn.Dropout(p=idropout)
         self.layers = nn.ModuleList()
         for i in range(num_layers):
             self.layers.append(
@@ -118,6 +120,7 @@ class GNNModel(nn.Module):
 
     def forward(self, g):
         out = g.ndata['feat']
+        out = self.dropout(out)
         for layer in self.layers:
             out = layer(g, out)
 

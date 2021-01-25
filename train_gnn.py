@@ -137,6 +137,7 @@ def main():
     parser.add_argument('--num_heads', type=int, default=1)
     parser.add_argument('--ego_size', type=int, default=64)
     parser.add_argument('--hidden_size', type=int, default=64)
+    parser.add_argument('--input_dropout', type=float, default=0.2)
     parser.add_argument('--hidden_dropout', type=float, default=0.4)
     parser.add_argument('--weight_decay', type=float, default=0.0005)
     parser.add_argument('--lr', type=float, default=0.001)
@@ -161,7 +162,7 @@ def main():
     torch.cuda.manual_seed(args.seed)
 
     para_dic = {'': args.model, 'nl': args.num_layers, 'nh': args.num_heads, 'es': args.ego_size, 'hs': args.hidden_size,
-                'hd': args.hidden_dropout, 'bs': args.batch_size, 'op': args.optimizer, 
+                'id': args.input_dropout, 'hd': args.hidden_dropout, 'bs': args.batch_size, 'op': args.optimizer, 
                 'lr': args.lr, 'wd': args.weight_decay, 'bn': args.batch_norm, 
                 'rs': args.residual, 'll': args.linear_layer, 'sd': args.seed}
     para_dic['warm'] = args.warmup
@@ -249,7 +250,7 @@ def main():
     test_loader = DataLoader(test_dataset, batch_size=args.eval_batch_size, shuffle=False, num_workers=args.num_workers, collate_fn=batcher(), pin_memory=True)
 
     model = GNNModel(conv_type=args.model, input_size=graph.ndata['feat'].shape[1]+1, hidden_size=args.hidden_size, num_layers=args.num_layers, 
-                     num_classes=num_classes, batch_norm=args.batch_norm, residual=args.residual, 
+                     num_classes=num_classes, batch_norm=args.batch_norm, residual=args.residual, idropout=args.input_dropout, 
                      dropout=args.hidden_dropout, linear_layer=args.linear_layer, num_heads=args.num_heads).to(device)
 
     wandb.watch(model, log='all')
