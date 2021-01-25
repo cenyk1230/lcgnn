@@ -1,6 +1,7 @@
 import torch
 
 PATH_DICT = {
+    "ppi": "./dataset/PPI/processed/data.pt",
     "reddit": "./dataset/Reddit/processed/data.pt",
     "flickr": "./dataset/Flickr/processed/data.pt",
     "yelp": "./dataset/Yelp/processed/data.pt",
