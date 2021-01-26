@@ -30,10 +30,10 @@ def my_sweep_cut(g, node):
     return conds
 
 def calc_local_clustering(args):
-    i, log_steps, num_iter, ego_size = args
+    i, log_steps, num_iter, ego_size, method = args
     if i % log_steps == 0:
         print(i)
-    node, ppr = approximate_PageRank(graphlocal, [i], iterations=num_iter, method="acl", normalize=False)
+    node, ppr = approximate_PageRank(graphlocal, [i], iterations=num_iter, method=method, normalize=False)
     d_inv = graphlocal.dn[node]
     d_inv[d_inv > 1.0] = 1.0
     ppr_d_inv = ppr * d_inv
@@ -44,7 +44,7 @@ def calc_local_clustering(args):
     conds = my_sweep_cut(graphlocal, node)
     return node, conds
 
-def step1_local_clustering(task, name, ego_size=128, num_iter=1000, log_steps=10000, num_workers=16):
+def step1_local_clustering(task, name, ego_size=128, num_iter=1000, log_steps=10000, num_workers=16, method='acl'):
     dataset = create_dataset(name=f'{task}-{name}')
     data = dataset[0]
 
@@ -63,13 +63,13 @@ def step1_local_clustering(task, name, ego_size=128, num_iter=1000, log_steps=10
     test_idx = idx_split["test"].cpu().numpy()
 
     with multiprocessing.Pool(num_workers) as pool:
-        ego_graphs_train, conds_train = zip(*pool.imap(calc_local_clustering, [(i, log_steps, num_iter, ego_size) for i in train_idx], chunksize=512))
+        ego_graphs_train, conds_train = zip(*pool.imap(calc_local_clustering, [(i, log_steps, num_iter, ego_size, method) for i in train_idx], chunksize=512))
 
     with multiprocessing.Pool(num_workers) as pool:
-        ego_graphs_valid, conds_valid = zip(*pool.imap(calc_local_clustering, [(i, log_steps, num_iter, ego_size) for i in valid_idx], chunksize=512))
+        ego_graphs_valid, conds_valid = zip(*pool.imap(calc_local_clustering, [(i, log_steps, num_iter, ego_size, method) for i in valid_idx], chunksize=512))
 
     with multiprocessing.Pool(num_workers) as pool:
-        ego_graphs_test, conds_test = zip(*pool.imap(calc_local_clustering, [(i, log_steps, num_iter, ego_size) for i in test_idx], chunksize=512))
+        ego_graphs_test, conds_test = zip(*pool.imap(calc_local_clustering, [(i, log_steps, num_iter, ego_size, method) for i in test_idx], chunksize=512))
 
     ego_graphs = []
     conds = []
@@ -84,36 +84,60 @@ def step1_local_clustering(task, name, ego_size=128, num_iter=1000, log_steps=10
     np.save(f"data/{name}-lc-conds-{ego_size}.npy", conds)
 
 def calc_inductive(args):
-    i, log_steps, num_iter, ego_size = args
+    i, log_steps, num_iter, ego_size, method = args
     if i % log_steps == 0:
         print(i)
-    node, ppr = approximate_PageRank(graphlocal, [i], iterations=num_iter, method="acl", normalize=False)
-    d_inv = graphlocal.dn[node]
-    d_inv[d_inv > 1.0] = 1.0
-    ppr_d_inv = ppr * d_inv
+    if graphlocal.dn[i] == 0:
+        print('isolated node (testing):', i)
+        node = np.array([i], dtype=np.int32)
+        conds = np.array([1.0], dtype=np.float)
+        return node, conds
+    node, ppr_d_inv = approximate_PageRank(graphlocal, [i], iterations=num_iter, method=method, normalize=True)
+    # d_inv = graphlocal.dn[node]
+    # d_inv[d_inv > 1.0] = 1.0
+    # ppr_d_inv = ppr * d_inv
     output = list(zip(node, ppr_d_inv))[:ego_size]
     node, ppr_d_inv = zip(*sorted(output, key=lambda x: x[1], reverse=True))
+    node = list(node)
+    if node[0] != i:
+        if i not in node:
+            node = [i] + node[:-1]
+        else:
+            idx = node.index(i)
+            node = [i] + node[:idx] + node[idx+1:]
     assert node[0] == i
     node = np.array(node, dtype=np.int32)
     conds = my_sweep_cut(graphlocal, node)
     return node, conds
 
 def calc_inductive_train(args):
-    i, log_steps, num_iter, ego_size = args
+    i, log_steps, num_iter, ego_size, method = args
     if i % log_steps == 0:
         print(i)
-    node, ppr = approximate_PageRank(graphlocal_train, [i], iterations=num_iter, method="acl", normalize=False)
-    d_inv = graphlocal_train.dn[node]
-    d_inv[d_inv > 1.0] = 1.0
-    ppr_d_inv = ppr * d_inv
+    if graphlocal_train.dn[i] == 0:
+        print('isolated node (training):', i)
+        node = np.array([i], dtype=np.int32)
+        conds = np.array([1.0], dtype=np.float)
+        return node, conds
+    node, ppr_d_inv = approximate_PageRank(graphlocal_train, [i], iterations=num_iter, method=method, normalize=True)
+    # d_inv = graphlocal_train.dn[node]
+    # d_inv[d_inv > 1.0] = 1.0
+    # ppr_d_inv = ppr * d_inv
     output = list(zip(node, ppr_d_inv))[:ego_size]
     node, ppr_d_inv = zip(*sorted(output, key=lambda x: x[1], reverse=True))
+    node = list(node)
+    if node[0] != i:
+        if i not in node:
+            node = [i] + node[:-1]
+        else:
+            idx = node.index(i)
+            node = [i] + node[:idx] + node[idx+1:]
     assert node[0] == i
     node = np.array(node, dtype=np.int32)
     conds = my_sweep_cut(graphlocal_train, node)
     return node, conds
 
-def step1_inductive(task, name, ego_size=128, num_iter=1000, log_steps=10000, num_workers=16):
+def step1_inductive(task, name, ego_size=128, num_iter=1000, log_steps=10000, num_workers=16, method='acl'):
     dataset = create_dataset(name=f'{task}-{name}')
     data = dataset[0]
 
@@ -140,13 +164,13 @@ def step1_inductive(task, name, ego_size=128, num_iter=1000, log_steps=10000, nu
     print('graphlocal generated')
 
     with multiprocessing.Pool(num_workers) as pool:
-        ego_graphs_train, conds_train = zip(*pool.imap(calc_inductive_train, [(i, log_steps, num_iter, ego_size) for i in train_idx], chunksize=512))
+        ego_graphs_train, conds_train = zip(*pool.imap(calc_inductive_train, [(i, log_steps, num_iter, ego_size, method) for i in train_idx], chunksize=512))
 
     with multiprocessing.Pool(num_workers) as pool:
-        ego_graphs_valid, conds_valid = zip(*pool.imap(calc_inductive, [(i, log_steps, num_iter, ego_size) for i in valid_idx], chunksize=512))
+        ego_graphs_valid, conds_valid = zip(*pool.imap(calc_inductive, [(i, log_steps, num_iter, ego_size, method) for i in valid_idx], chunksize=512))
 
     with multiprocessing.Pool(num_workers) as pool:
-        ego_graphs_test, conds_test = zip(*pool.imap(calc_inductive, [(i, log_steps, num_iter, ego_size) for i in test_idx], chunksize=512))
+        ego_graphs_test, conds_test = zip(*pool.imap(calc_inductive, [(i, log_steps, num_iter, ego_size, method) for i in test_idx], chunksize=512))
 
     ego_graphs = []
     conds = []
@@ -256,6 +280,7 @@ if __name__ == "__main__":
     parser.add_argument('--log_steps', type=int, default=10000)
     parser.add_argument('--step', type=int, default=1)
     parser.add_argument('--seed', type=int, default=0)
+    parser.add_argument('--method', type=str, default='acl')
     parser.add_argument('--num_workers', type=int, default=16)
     args = parser.parse_args()
     print(args)
@@ -268,9 +293,9 @@ if __name__ == "__main__":
     if args.step == 1:
         #step1(task=args.task, name=args.dataset, ego_size=args.ego_size, num_iter=args.num_iter, log_steps=args.log_steps)
         if args.task == 'ogbn':
-            step1_local_clustering(task=args.task, name=args.dataset, ego_size=args.ego_size, num_iter=args.num_iter, log_steps=args.log_steps, num_workers=args.num_workers)
+            step1_local_clustering(task=args.task, name=args.dataset, ego_size=args.ego_size, num_iter=args.num_iter, log_steps=args.log_steps, num_workers=args.num_workers, method=args.method)
         else:
-            step1_inductive(task=args.task, name=args.dataset, ego_size=args.ego_size, num_iter=args.num_iter, log_steps=args.log_steps, num_workers=args.num_workers)
+            step1_inductive(task=args.task, name=args.dataset, ego_size=args.ego_size, num_iter=args.num_iter, log_steps=args.log_steps, num_workers=args.num_workers, method=args.method)
     elif args.step == 2:
         step2(task=args.task, name=args.dataset, ego_size=args.ego_size)
     elif args.step == 3:

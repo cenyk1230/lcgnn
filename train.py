@@ -162,6 +162,7 @@ def main():
     parser.add_argument('--pe_type', type=int, default=0)
     parser.add_argument('--mask', type=int, default=0)
     parser.add_argument("--optimizer", type=str, default='adamw', choices=['adam', 'adamw'], help="optimizer")
+    parser.add_argument("--method", type=str, default='acl', choices=['acl', 'l1reg'], help="method for local clustering")
     parser.add_argument('--warmup', type=int, default=10000)
     parser.add_argument('--seed', type=int, default=0)
     parser.add_argument('--load_path', type=str, default='')
@@ -176,7 +177,7 @@ def main():
     para_dic = {'nl': args.num_layers, 'nh': args.num_heads, 'es': args.ego_size, 'hs': args.hidden_size,
                 'id': args.input_dropout, 'hd': args.hidden_dropout, 'bs': args.batch_size, 'pe': args.pe_type, 
                 'op': args.optimizer, 'lr': args.lr, 'wd': args.weight_decay,
-                'ln': args.layer_norm, 'sc': args.src_scale, 'sd': args.seed}
+                'ln': args.layer_norm, 'sc': args.src_scale, 'sd': args.seed, 'md': args.method}
     para_dic['warm'] = args.warmup
     para_dic['mask'] = args.mask
     exp_name = get_exp_name(args.dataset, para_dic, args.exp_name)
@@ -200,8 +201,12 @@ def main():
     valid_idx = set(split_idx['valid'].cpu().numpy())
     test_idx = set(split_idx['test'].cpu().numpy())
 
-    ego_graphs_unpadded = np.load(f'data/{args.dataset}-lc-ego-graphs-{args.ego_size}.npy', allow_pickle=True)
-    conds_unpadded = np.load(f'data/{args.dataset}-lc-conds-{args.ego_size}.npy', allow_pickle=True)
+    if args.method != "acl":
+        ego_graphs_unpadded = np.load(f'data/{args.dataset}-lc-{args.method}-ego-graphs-{args.ego_size}.npy', allow_pickle=True)
+        conds_unpadded = np.load(f'data/{args.dataset}-lc-{args.method}-conds-{args.ego_size}.npy', allow_pickle=True)
+    else:
+        ego_graphs_unpadded = np.load(f'data/{args.dataset}-lc-ego-graphs-{args.ego_size}.npy', allow_pickle=True)
+        conds_unpadded = np.load(f'data/{args.dataset}-lc-conds-{args.ego_size}.npy', allow_pickle=True)
 
     ego_graphs_train, ego_graphs_valid, ego_graphs_test = [], [], []
     cut_train, cut_valid, cut_test = [], [], []
