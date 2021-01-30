@@ -20,6 +20,8 @@ parameters:
     values: [256]
   eval_batch_size:
     values: [512]
+  input_dropout:
+    values: [0.0, 0.1, 0.2]
   hidden_dropout:
     values: [0.1, 0.2, 0.3]
   batch_norm:

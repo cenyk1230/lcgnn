@@ -181,8 +181,13 @@ def step1_inductive(task, name, ego_size=128, num_iter=1000, log_steps=10000, nu
     conds.extend(conds_valid)
     conds.extend(conds_test)
 
-    np.save(f"data/{name}-lc-ego-graphs-{ego_size}.npy", ego_graphs)
-    np.save(f"data/{name}-lc-conds-{ego_size}.npy", conds)
+    if method == 'acl':
+        np.save(f"data/{name}-lc-ego-graphs-{ego_size}.npy", ego_graphs)
+        np.save(f"data/{name}-lc-conds-{ego_size}.npy", conds)
+    else:
+        np.save(f"data/{name}-lc-{method}-ego-graphs-{ego_size}.npy", ego_graphs)
+        np.save(f"data/{name}-lc-{method}-conds-{ego_size}.npy", conds)
+
 
 def calc2(args):
     adj, ego, ego_size = args

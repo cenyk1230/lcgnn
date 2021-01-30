@@ -162,6 +162,7 @@ def main():
     parser.add_argument('--pe_type', type=int, default=0)
     parser.add_argument('--mask', type=int, default=0)
     parser.add_argument("--optimizer", type=str, default='adamw', choices=['adam', 'adamw'], help="optimizer")
+    parser.add_argument("--scheduler", type=str, default='noam', choices=['noam', 'linear'], help="scheduler")
     parser.add_argument("--method", type=str, default='acl', choices=['acl', 'l1reg'], help="method for local clustering")
     parser.add_argument('--warmup', type=int, default=10000)
     parser.add_argument('--seed', type=int, default=0)
@@ -312,7 +313,10 @@ def main():
     else:
         raise NotImplementedError
     if args.warmup > 0:
-        optimizer = NoamOptim(optimizer, args.hidden_size if args.hidden_size > 0 else data.x.size(1), n_warmup_steps=args.warmup, init_lr=args.lr)
+        if args.scheduler == 'noam':
+            optimizer = NoamOptim(optimizer, args.hidden_size if args.hidden_size > 0 else data.x.size(1), n_warmup_steps=args.warmup) #, init_lr=args.lr)
+        elif args.scheduler == 'linear':
+            optimizer = LinearOptim(optimizer, n_warmup_steps=args.warmup, n_training_steps=args.epochs * len(train_dataset), init_lr=args.lr)
 
     for epoch in range(1, 1 + args.epochs):
         # lp = LineProfiler()
