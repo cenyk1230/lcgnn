@@ -150,7 +150,7 @@ def main():
     parser.add_argument('--hidden_size', type=int, default=64)
     parser.add_argument('--input_dropout', type=float, default=0.2)
     parser.add_argument('--hidden_dropout', type=float, default=0.4)
-    parser.add_argument('--weight_decay', type=float, default=0.05)
+    parser.add_argument('--weight_decay', type=float, default=0.005)
     parser.add_argument('--lr', type=float, default=0.001)
     parser.add_argument('--epochs', type=int, default=500)
     parser.add_argument('--early_stopping', type=int, default=50)
@@ -206,8 +206,9 @@ def main():
         ego_graphs_unpadded = np.load(f'data/{args.dataset}-lc-{args.method}-ego-graphs-{args.ego_size}.npy', allow_pickle=True)
         conds_unpadded = np.load(f'data/{args.dataset}-lc-{args.method}-conds-{args.ego_size}.npy', allow_pickle=True)
     else:
-        ego_graphs_unpadded = np.load(f'data/{args.dataset}-lc-ego-graphs-{args.ego_size}.npy', allow_pickle=True)
-        conds_unpadded = np.load(f'data/{args.dataset}-lc-conds-{args.ego_size}.npy', allow_pickle=True)
+        tmp_ego_size = 256 if args.dataset == 'products' else args.ego_size
+        ego_graphs_unpadded = np.load(f'data/{args.dataset}-lc-ego-graphs-{tmp_ego_size}.npy', allow_pickle=True)
+        conds_unpadded = np.load(f'data/{args.dataset}-lc-conds-{tmp_ego_size}.npy', allow_pickle=True)
 
     ego_graphs_train, ego_graphs_valid, ego_graphs_test = [], [], []
     cut_train, cut_valid, cut_test = [], [], []
@@ -215,6 +216,9 @@ def main():
     for i, x in enumerate(ego_graphs_unpadded):
         idx = x[0]
         assert len(x) == len(conds_unpadded[i])
+        if len(x) > args.ego_size:
+            x = x[:args.ego_size]
+            conds_unpadded[i] = conds_unpadded[i][:args.ego_size]
         ego_graph = -np.ones(args.ego_size, dtype=np.int32)
         ego_graph[:len(x)] = x
         cut_position = np.argmin(conds_unpadded[i])
@@ -316,7 +320,7 @@ def main():
         if args.scheduler == 'noam':
             optimizer = NoamOptim(optimizer, args.hidden_size if args.hidden_size > 0 else data.x.size(1), n_warmup_steps=args.warmup) #, init_lr=args.lr)
         elif args.scheduler == 'linear':
-            optimizer = LinearOptim(optimizer, n_warmup_steps=args.warmup, n_training_steps=args.epochs * len(train_dataset), init_lr=args.lr)
+            optimizer = LinearOptim(optimizer, n_warmup_steps=args.warmup, n_training_steps=args.epochs * len(train_loader), init_lr=args.lr)
 
     for epoch in range(1, 1 + args.epochs):
         # lp = LineProfiler()
