@@ -187,8 +187,9 @@ def main():
     valid_idx = set(split_idx['valid'].cpu().numpy())
     test_idx = set(split_idx['test'].cpu().numpy())
 
-    ego_graphs_unpadded = np.load(f'data/{args.dataset}-lc-ego-graphs-{args.ego_size}.npy', allow_pickle=True)
-    conds_unpadded = np.load(f'data/{args.dataset}-lc-conds-{args.ego_size}.npy', allow_pickle=True)
+    tmp_ego_size = 256 if args.dataset == 'products' else args.ego_size
+    ego_graphs_unpadded = np.load(f'data/{args.dataset}-lc-ego-graphs-{tmp_ego_size}.npy', allow_pickle=True)
+    conds_unpadded = np.load(f'data/{args.dataset}-lc-conds-{tmp_ego_size}.npy', allow_pickle=True)
 
     ego_graphs_train, ego_graphs_valid, ego_graphs_test = [], [], []
     cut_train, cut_valid, cut_test = [], [], []
@@ -300,7 +301,7 @@ def main():
         loss = train(model, train_loader, device, optimizer, args)
 
         train_output = valid_output = test_output = ''
-        if epoch % args.log_steps == 0:
+        if epoch >= 10 and epoch % args.log_steps == 0:
             valid_acc, valid_loss = test(model, valid_loader, device, args)
             valid_output = f'Valid: {100 * valid_acc:.2f}% '
 
