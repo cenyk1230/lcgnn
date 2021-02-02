@@ -130,7 +130,7 @@ def get_lr(optimizer):
 def main():
     parser = argparse.ArgumentParser(description='OGBN (GNN)')
     parser.add_argument('--device', type=int, default=0)
-    parser.add_argument('--dataset', type=str, default='arxiv')
+    parser.add_argument('--dataset', type=str, default='flickr')
     parser.add_argument('--model', type=str, default='gcn')
     parser.add_argument('--log_steps', type=int, default=1)
     parser.add_argument('--num_layers', type=int, default=4)
@@ -175,11 +175,9 @@ def main():
     device = f'cuda:{args.device}' if torch.cuda.is_available() else 'cpu'
     device = torch.device(device)
 
-    metric = 'loss'
     if args.dataset == 'papers100M':
         dataset = MyNodePropPredDataset(name=args.dataset)
     elif args.dataset in ['ppi', 'flickr', 'reddit', 'yelp', 'amazon']:
-        metric = 'acc'
         dataset = SAINTDataset(name=args.dataset)
     else:
         dataset = DglNodePropPredDataset(name=f'ogbn-{args.dataset}')
@@ -282,7 +280,6 @@ def main():
         return
 
     best_val_acc = 0
-    best_val_loss = 1e8
     cor_train_acc = 0
     cor_test_acc = 0
     patience = 0
@@ -308,9 +305,8 @@ def main():
             valid_acc, valid_loss = test(model, valid_loader, device, args)
             valid_output = f'Valid: {100 * valid_acc:.2f}% '
 
-            if (metric == 'acc' and valid_acc > best_val_acc) or (metric == 'loss' and valid_loss < best_val_loss):
+            if valid_acc > best_val_acc:
                 best_val_acc = valid_acc
-                best_val_loss = valid_loss
                 # cor_train_acc, _ = test(model, train_loader, device, args)
                 cor_test_acc, cor_test_loss = test(model, test_loader, device, args)
                 # train_output = f'Train: {100 * cor_train_acc:.2f}%, '
@@ -326,14 +322,9 @@ def main():
                 if patience >= args.early_stopping:
                     print('Early stopping...')
                     break
-            log_dict = {'Train Loss': loss, 'Valid Acc': valid_acc,
-                        'cor_test_acc': cor_test_acc, 'LR': get_lr(optimizer),
-                        'Valid Loss': valid_loss, 'cor_test_loss': cor_test_loss}
-            if metric == 'acc':
-                log_dict['best_val_acc'] = best_val_acc
-            else:
-                log_dict['best_val_loss'] = best_val_loss
-            wandb.log(log_dict)
+            wandb.log({'Train Loss': loss, 'Valid Acc': valid_acc, 'best_val_acc': best_val_acc,
+                      'cor_test_acc': cor_test_acc, 'LR': get_lr(optimizer),
+                      'Valid Loss': valid_loss, 'cor_test_loss': cor_test_loss})
         else:
             wandb.log({'Train Loss': loss, 'LR': get_lr(optimizer)})
         # train_output + 
