@@ -189,6 +189,8 @@ def main():
     test_idx = set(split_idx['test'].cpu().numpy())
 
     tmp_ego_size = 256 if args.dataset == 'products' else args.ego_size
+    if args.ego_size < 64:
+        tmp_ego_size = 64
     ego_graphs_unpadded = np.load(f'data/{args.dataset}-lc-ego-graphs-{tmp_ego_size}.npy', allow_pickle=True)
     conds_unpadded = np.load(f'data/{args.dataset}-lc-conds-{tmp_ego_size}.npy', allow_pickle=True)
 
@@ -198,6 +200,9 @@ def main():
     for i, ego_graph in enumerate(ego_graphs_unpadded):
         idx = ego_graph[0]
         assert len(ego_graph) == len(conds_unpadded[i])
+        if len(ego_graph) > args.ego_size:
+            ego_graph = ego_graph[:args.ego_size]
+            conds_unpadded[i] = conds_unpadded[i][:args.ego_size]
         cut_position = np.argmin(conds_unpadded[i])
         cut = torch.zeros(len(ego_graph), dtype=torch.float32)
         cut[:cut_position+1] = 1.0
