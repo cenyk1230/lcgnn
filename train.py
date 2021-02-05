@@ -144,6 +144,7 @@ def get_lr(optimizer):
 def main():
     parser = argparse.ArgumentParser(description='OGBN (GNN)')
     parser.add_argument('--device', type=int, default=0)
+    parser.add_argument('--project', type=str, default='lcgnn')
     parser.add_argument('--dataset', type=str, default='flickr')
     parser.add_argument('--log_steps', type=int, default=1)
     parser.add_argument('--num_layers', type=int, default=4)
@@ -187,7 +188,7 @@ def main():
     exp_name = get_exp_name(args.dataset, para_dic, args.exp_name)
 
     wandb_name = exp_name.replace('_sd'+str(args.seed), '')
-    wandb.init(name=wandb_name, project="lcgnn")
+    wandb.init(name=wandb_name, project=args.project)
     wandb.config.update(args)
 
     device = f'cuda:{args.device}' if torch.cuda.is_available() else 'cpu'
