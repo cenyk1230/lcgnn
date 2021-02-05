@@ -163,6 +163,7 @@ def main():
     parser.add_argument('--num_workers', type=int, default=4, help='number of workers')
     parser.add_argument('--pe_type', type=int, default=0)
     parser.add_argument('--mask', type=int, default=0)
+    parser.add_argument('--mlp', type=int, default=0)
     parser.add_argument("--optimizer", type=str, default='adamw', choices=['adam', 'adamw'], help="optimizer")
     parser.add_argument("--scheduler", type=str, default='noam', choices=['noam', 'linear'], help="scheduler")
     parser.add_argument("--method", type=str, default='acl', choices=['acl', 'l1reg'], help="method for local clustering")
@@ -209,6 +210,8 @@ def main():
         conds_unpadded = np.load(f'data/{args.dataset}-lc-{args.method}-conds-{args.ego_size}.npy', allow_pickle=True)
     else:
         tmp_ego_size = 256 if args.dataset == 'products' else args.ego_size
+        if args.ego_size < 64:
+            tmp_ego_size = 64
         ego_graphs_unpadded = np.load(f'data/{args.dataset}-lc-ego-graphs-{tmp_ego_size}.npy', allow_pickle=True)
         conds_unpadded = np.load(f'data/{args.dataset}-lc-conds-{tmp_ego_size}.npy', allow_pickle=True)
 
@@ -273,7 +276,8 @@ def main():
                              args.num_layers, num_classes, 
                              args.input_dropout, args.hidden_dropout,
                              layer_norm=args.layer_norm, 
-                             src_scale=args.src_scale).to(device)
+                             src_scale=args.src_scale,
+                             mlp=args.mlp).to(device)
     wandb.watch(model, log='all')
 
     if torch.cuda.device_count() > 1:
