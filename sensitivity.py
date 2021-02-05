@@ -34,8 +34,8 @@ if __name__ == "__main__":
         num = 1
         config["early_stopping"] = 20
 
-    for ego_size in [16, 32, 64, 128, 256]:
-        for seed in range(num):
+    for seed in range(num):
+        for ego_size in [16, 32, 64, 128, 256]:
             cur_command = command + " ".join([f"--{key} {value}" if key != 'ego_size' else f"--{key} {ego_size}" for key, value in config.items()]) + f" --seed {seed}"
             print(cur_command)
 
