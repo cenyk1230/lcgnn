@@ -33,7 +33,7 @@ configs = {
         "amazon": {
             "num_layers": 5,
             "num_heads": 4,
-            "ego_size": 64,
+            "ego_size": 128,
             "hidden_size": 128,
             "input_dropout": 0.1,
             "hidden_dropout": 0.2,
@@ -44,7 +44,7 @@ configs = {
     "gcn": {
         "flickr": {
             "num_layers": 5,
-            "ego_size": 128,
+            "ego_size": 256,
             "hidden_size": 128,
             "input_dropout": 0.0,
             "hidden_dropout": 0.3,
@@ -53,7 +53,7 @@ configs = {
         },
         "reddit": {
             "num_layers": 5,
-            "ego_size": 128,
+            "ego_size": 256,
             "hidden_size": 128,
             "input_dropout": 0.0,
             "hidden_dropout": 0.3,
@@ -82,7 +82,7 @@ configs = {
     "sage": {
         "flickr": {
             "num_layers": 5,
-            "ego_size": 128,
+            "ego_size": 256,
             "hidden_size": 512,
             "input_dropout": 0.2,
             "hidden_dropout": 0.3,
@@ -91,7 +91,7 @@ configs = {
         },
         "reddit": {
             "num_layers": 5,
-            "ego_size": 128,
+            "ego_size": 256,
             "hidden_size": 512,
             "input_dropout": 0.2,
             "hidden_dropout": 0.3,
@@ -121,7 +121,7 @@ configs = {
         "flickr": {
             "num_layers": 5,
             "num_heads": 4,
-            "ego_size": 128,
+            "ego_size": 256,
             "hidden_size": 512,
             "input_dropout": 0.2,
             "hidden_dropout": 0.1,
