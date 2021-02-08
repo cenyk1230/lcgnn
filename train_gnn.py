@@ -78,7 +78,7 @@ def train(model, loader, device, optimizer, args):
 
         out = model(g)
 
-        if args.dataset in ['ppi', 'yelp', 'amazon']:
+        if args.dataset in ['yelp', 'amazon']:
             loss = F.binary_cross_entropy_with_logits(out, y.float())
         else:
             loss = F.cross_entropy(out, y.squeeze(1))
@@ -107,7 +107,7 @@ def test(model, loader, device, args):
     y_pred = torch.cat(y_pred, dim=0)
     y_true = torch.cat(y_true, dim=0)
 
-    if args.dataset in ['ppi', 'yelp', 'amazon']:
+    if args.dataset in ['yelp', 'amazon']:
         loss = F.binary_cross_entropy_with_logits(y_pred, y_true.float()).item()
         metric = multilabel_f1(y_true, y_pred, sigmoid=False)
     else:
@@ -178,7 +178,7 @@ def main():
 
     if args.dataset == 'papers100M':
         dataset = MyNodePropPredDataset(name=args.dataset)
-    elif args.dataset in ['ppi', 'flickr', 'reddit', 'yelp', 'amazon']:
+    elif args.dataset in ['flickr', 'reddit', 'yelp', 'amazon']:
         dataset = SAINTDataset(name=args.dataset)
     else:
         dataset = DglNodePropPredDataset(name=f'ogbn-{args.dataset}')

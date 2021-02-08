@@ -1,14 +1,13 @@
 import torch
 
 PATH_DICT = {
-    "ppi": "./dataset/PPI/processed/data.pt",
     "reddit": "./dataset/Reddit/processed/data.pt",
     "flickr": "./dataset/Flickr/processed/data.pt",
     "yelp": "./dataset/Yelp/processed/data.pt",
     "amazon": "./dataset/AmazonSaint/processed/data.pt",
 }
 
-num_classes_dict = dict(arxiv=40, products=47, papers100M=172)
+num_classes_dict = dict(products=47, papers100M=172)
 
 class Data(object):
     def __init__(self, x, y):

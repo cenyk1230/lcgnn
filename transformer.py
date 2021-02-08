@@ -5,7 +5,6 @@ import torch.nn.functional as F
 
 
 class TransformerModel(nn.Module):
-    """Container module with an encoder, transformer module, and a decoder."""
 
     def __init__(self, ntoken, ninp, nhead, nhid, nlayers, nclasses, idropout=0.1, hdropout=0.5, 
                  layer_norm=0, src_scale=0, mlp=0):

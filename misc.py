@@ -1,8 +1,5 @@
 from mydataset import SAINTDataset
-from ogb.graphproppred import PygGraphPropPredDataset
-from ogb.linkproppred import PygLinkPropPredDataset
 from ogb.nodeproppred import PygNodePropPredDataset
-from torch_geometric.datasets import Planetoid
 import torch_geometric.transforms as T
 
 
@@ -11,12 +8,6 @@ def create_dataset(name):
         dataset = name[5:]
         if dataset in ["arxiv", "products", "papers100M", "proteins"]:
             return PygNodePropPredDataset(name)
-        else:
-            return Planetoid("./dataset", dataset, transform=T.NormalizeFeatures())
     elif name.startswith("saint"):
         dataset = name[6:]
         return SAINTDataset(dataset)
-    elif name.startswith("ogbl"):
-        return PygLinkPropPredDataset(name)
-    elif name.startswith("ogbg"):
-        return PygGraphPropPredDataset(name)

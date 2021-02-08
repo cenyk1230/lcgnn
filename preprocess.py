@@ -1,17 +1,13 @@
-import os
 import argparse
 import multiprocessing
+import os
 
 import numpy as np
-import scipy.sparse as sparse
-import sklearn.preprocessing as preprocessing
-from scipy.sparse import coo_matrix, csr_matrix, linalg
-from tqdm import tqdm
-
 from localgraphclustering import *
+from scipy.sparse import csr_matrix
+from torch_geometric.utils import to_undirected
+
 from misc import create_dataset
-from torch_geometric.utils import (add_remaining_self_loops,
-                                   to_scipy_sparse_matrix, to_undirected)
 
 
 def my_sweep_cut(g, node):
@@ -189,92 +185,6 @@ def step1_inductive(task, name, ego_size=128, num_iter=1000, log_steps=10000, nu
         np.save(f"data/{name}-lc-{method}-conds-{ego_size}.npy", conds)
 
 
-def calc2(args):
-    adj, ego, ego_size = args
-    ego_adj = adj[ego, :][:, ego].tocoo()
-    return coo_matrix((ego_adj.data, (ego_adj.row, ego_adj.col)), shape=(ego_size, ego_size)).toarray().astype(np.bool)
-
-def step2(task, name, ego_size=128):
-    dataset = create_dataset(name=f'{task}-{name}')
-    data = dataset[0]
-
-    N = data.num_nodes
-    edge_index = data.edge_index
-    edge_index = to_undirected(edge_index)
-    edge_index, _ = add_remaining_self_loops(edge_index)
-    adj = csr_matrix((np.ones(edge_index.shape[1]), edge_index.numpy()), shape=(N, N))
-
-    ego_graphs = np.load(f'data/{name}-ego-graphs-{ego_size}.npy', allow_pickle=True)
-
-    with multiprocessing.Pool(16) as pool:
-        ego_graphs_adj = list(pool.imap(calc2, ((adj, ego, ego_size) for ego in tqdm(ego_graphs)), chunksize=5120))
-    ego_graphs_adj = np.stack(ego_graphs_adj)
-    np.save(f'data/{name}-ego-graphs-adj-{ego_size}.npy', ego_graphs_adj)
-
-
-def eigen_decomposision(n, k, laplacian, hidden_size, retry):
-    if k <= 0:
-        return np.zeros((n, hidden_size))
-    laplacian = laplacian.astype("float32")
-    ncv = min(n, max(2 * k + 1, 20))
-    # follows https://stackoverflow.com/questions/52386942/scipy-sparse-linalg-eigsh-with-fixed-seed
-    v0 = np.random.rand(n).astype("float32")
-    for i in range(retry):
-        try:
-            s, u = linalg.eigsh(laplacian, k=k, which="LA", ncv=ncv, v0=v0)
-        except sparse.linalg.eigen.arpack.ArpackError:
-            ncv = min(ncv * 2, n)
-            if i + 1 == retry:
-                print("arpack error, retry=", i)
-                sparse.save_npz("arpack_error_sparse_matrix.npz", laplacian)
-                u = np.zeros((n, k))
-                exit(0)
-        else:
-            break
-    x = preprocessing.normalize(u, norm="l2")
-    if hidden_size > k:
-        x = np.concatenate((x, np.zeros((n, hidden_size - k))), axis=1)
-    return x.astype("float32")
-
-
-def _add_undirected_graph_positional_embedding(adj, n, hidden_size, retry=10):
-    # We use eigenvectors of normalized graph laplacian as vertex features.
-    # It could be viewed as a generalization of positional embedding in the
-    # attention is all you need paper.
-    # Recall that the eignvectors of normalized laplacian of a line graph are cos/sin functions.
-    # See section 2.4 of http://www.cs.yale.edu/homes/spielman/561/2009/lect02-09.pdf
-    norm = sparse.diags(
-        adj.sum(axis=1).getA().squeeze(1).clip(1) ** -0.5, dtype=float
-    )
-    laplacian = norm * adj * norm
-    k = min(n - 2, hidden_size)
-    x = eigen_decomposision(n, k, laplacian, hidden_size, retry)
-    return x
-
-def calc3(args):
-    adj, ego, ego_size, hidden_size = args
-    gpe = _add_undirected_graph_positional_embedding(adj[ego, :][:, ego], len(ego), hidden_size)
-    return np.concatenate((gpe, np.zeros((ego_size - len(ego), hidden_size))), axis=0)
-
-def step3(task, name, ego_size=128, hidden_size=128):
-    dataset = create_dataset(name=f'{task}-{name}')
-    data = dataset[0]
-
-    N = data.num_nodes
-    edge_index = data.edge_index.numpy()
-    edge_index = np.concatenate((edge_index, edge_index[::-1, :]), axis=1)
-    adj = csr_matrix((np.ones(edge_index.shape[1]), edge_index), shape=(N, N))
-
-    ego_graphs = np.load(f'data/{name}-ego-graphs-{ego_size}.npy', allow_pickle=True)
-
-    print('load done!')
-
-    with multiprocessing.Pool(16) as pool:
-        ego_graphs_gpe = list(pool.imap(calc3, ((adj, ego, ego_size, hidden_size) for ego in tqdm(ego_graphs)), chunksize=5120))
-
-    ego_graphs_gpe = np.stack(ego_graphs_gpe).astype(np.float32)
-    np.save(f'data/{name}-ego-graphs-gpe-{ego_size}-{hidden_size}.npy', ego_graphs_gpe)
-
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='LCGNN (Preprocessing)')
     parser.add_argument('--task', type=str, default='saint')
@@ -283,7 +193,6 @@ if __name__ == "__main__":
     parser.add_argument('--hidden_size', type=int, default=128)
     parser.add_argument('--num_iter', type=int, default=1000)
     parser.add_argument('--log_steps', type=int, default=10000)
-    parser.add_argument('--step', type=int, default=1)
     parser.add_argument('--seed', type=int, default=0)
     parser.add_argument('--method', type=str, default='acl')
     parser.add_argument('--num_workers', type=int, default=16)
@@ -295,13 +204,7 @@ if __name__ == "__main__":
     if not os.path.exists('data'):
         os.makedirs('data')
 
-    if args.step == 1:
-        #step1(task=args.task, name=args.dataset, ego_size=args.ego_size, num_iter=args.num_iter, log_steps=args.log_steps)
-        if args.task == 'ogbn':
-            step1_local_clustering(task=args.task, name=args.dataset, ego_size=args.ego_size, num_iter=args.num_iter, log_steps=args.log_steps, num_workers=args.num_workers, method=args.method)
-        else:
-            step1_inductive(task=args.task, name=args.dataset, ego_size=args.ego_size, num_iter=args.num_iter, log_steps=args.log_steps, num_workers=args.num_workers, method=args.method)
-    elif args.step == 2:
-        step2(task=args.task, name=args.dataset, ego_size=args.ego_size)
-    elif args.step == 3:
-        step3(task=args.task, name=args.dataset, ego_size=args.ego_size, hidden_size=args.hidden_size)
+    if args.task == 'ogbn':
+        step1_local_clustering(task=args.task, name=args.dataset, ego_size=args.ego_size, num_iter=args.num_iter, log_steps=args.log_steps, num_workers=args.num_workers, method=args.method)
+    else:
+        step1_inductive(task=args.task, name=args.dataset, ego_size=args.ego_size, num_iter=args.num_iter, log_steps=args.log_steps, num_workers=args.num_workers, method=args.method)
