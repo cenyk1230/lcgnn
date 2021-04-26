@@ -10,7 +10,7 @@ from tqdm import tqdm
 from sklearn.metrics import f1_score
 
 import wandb
-from mydataset import MyNodePropPredDataset, SAINTDataset
+from mydataset import MyMAG240MDataset, MyNodePropPredDataset, SAINTDataset
 # from line_profiler import LineProfiler
 from ogb.nodeproppred import PygNodePropPredDataset
 from optim_schedule import NoamOptim, LinearOptim
@@ -144,7 +144,7 @@ def get_lr(optimizer):
 def main():
     parser = argparse.ArgumentParser(description='OGBN (GNN)')
     parser.add_argument('--device', type=int, default=0)
-    parser.add_argument('--project', type=str, default='lcgnn')
+    parser.add_argument('--project', type=str, default='lsc')
     parser.add_argument('--dataset', type=str, default='flickr')
     parser.add_argument('--log_steps', type=int, default=1)
     parser.add_argument('--num_layers', type=int, default=4)
@@ -196,21 +196,25 @@ def main():
 
     if args.dataset == 'papers100M':
         dataset = MyNodePropPredDataset(name=args.dataset)
+    elif args.dataset == 'mag240m':
+        dataset = MyMAG240MDataset(data_dir='/home/yukuo/mag240m_kddcup2021')
     elif args.dataset in ['flickr', 'reddit', 'yelp', 'amazon']:
         dataset = SAINTDataset(name=args.dataset)
     else:
         dataset = PygNodePropPredDataset(name=f'ogbn-{args.dataset}')
 
     split_idx = dataset.get_idx_split()
-    train_idx = set(split_idx['train'].cpu().numpy())
-    valid_idx = set(split_idx['valid'].cpu().numpy())
-    test_idx = set(split_idx['test'].cpu().numpy())
+    train_idx = set(split_idx['train'])
+    valid_idx = set(split_idx['valid'])
+    test_idx = set(split_idx['test'])
 
     if args.method != "acl":
         ego_graphs_unpadded = np.load(f'data/{args.dataset}-lc-{args.method}-ego-graphs-{args.ego_size}.npy', allow_pickle=True)
         conds_unpadded = np.load(f'data/{args.dataset}-lc-{args.method}-conds-{args.ego_size}.npy', allow_pickle=True)
     else:
         tmp_ego_size = 256 if args.dataset == 'products' else args.ego_size
+        if args.dataset == 'mag240m':
+            tmp_ego_size = 128
         if args.ego_size < 64:
             tmp_ego_size = 64
         ego_graphs_unpadded = np.load(f'data/{args.dataset}-lc-ego-graphs-{tmp_ego_size}.npy', allow_pickle=True)
@@ -337,16 +341,16 @@ def main():
         loss = train(model, train_loader, device, optimizer, args)
 
         train_output = valid_output = test_output = ''
-        if epoch >= 10 and epoch % args.log_steps == 0:
+        if epoch % args.log_steps == 0:
             valid_acc, valid_loss = test(model, valid_loader, device, args)
             valid_output = f'Valid: {100 * valid_acc:.2f}% '
 
             if valid_acc > best_val_acc:
                 best_val_acc = valid_acc
                 # cor_train_acc, _ = test(model, train_loader, device, args)
-                cor_test_acc, cor_test_loss = test(model, test_loader, device, args)
                 # train_output = f'Train: {100 * cor_train_acc:.2f}%, '
-                test_output = f'Test: {100 * cor_test_acc:.2f}%'
+                # cor_test_acc, cor_test_loss = test(model, test_loader, device, args)
+                # test_output = f'Test: {100 * cor_test_acc:.2f}%'
                 patience = 0
                 try:
                     if torch.cuda.device_count() > 1:
@@ -361,9 +365,8 @@ def main():
                 if patience >= args.early_stopping:
                     print('Early stopping...')
                     break
-            wandb.log({'Train Loss': loss, 'Valid Acc': valid_acc, 'best_val_acc': best_val_acc,
-                      'cor_test_acc': cor_test_acc, 'LR': get_lr(optimizer),
-                      'Valid Loss': valid_loss, 'cor_test_loss': cor_test_loss})
+            wandb.log({'Train Loss': loss, 'Valid Acc': valid_acc, 'Valid Loss': valid_loss, 'best_val_acc': best_val_acc,
+                      'LR': get_lr(optimizer)}) # , 'cor_test_acc': cor_test_acc, 'cor_test_loss': cor_test_loss})
         else:
             wandb.log({'Train Loss': loss, 'LR': get_lr(optimizer)})
         # train_output + 
