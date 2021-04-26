@@ -1,7 +1,6 @@
-from mydataset import SAINTDataset
+from mydataset import SAINTDataset, MyMAG240MDataset
 from ogb.nodeproppred import PygNodePropPredDataset
 import torch_geometric.transforms as T
-
 
 def create_dataset(name):
     if name.startswith("ogbn"):
@@ -11,3 +10,5 @@ def create_dataset(name):
     elif name.startswith("saint"):
         dataset = name[6:]
         return SAINTDataset(dataset)
+    elif name.startswith("lsc"):
+        return MyMAG240MDataset("/home/yukuo/mag240m_kddcup2021")

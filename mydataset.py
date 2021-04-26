@@ -1,3 +1,6 @@
+import os.path as osp
+import time
+import numpy as np
 import torch
 
 PATH_DICT = {
@@ -7,13 +10,14 @@ PATH_DICT = {
     "amazon": "./dataset/AmazonSaint/processed/data.pt",
 }
 
-num_classes_dict = dict(products=47, papers100M=172)
+num_classes_dict = dict(products=47, papers100M=172, mag240M=153)
 
 class Data(object):
-    def __init__(self, x, y):
+    def __init__(self, x, y, edge_index=None):
         super(Data, self).__init__()
         self.x = x
         self.y = y
+        self.edge_index = edge_index
         self.num_nodes = x.shape[0]
 
 class MyNodePropPredDataset(object):
@@ -63,3 +67,24 @@ class SAINTDataset(object):
 
     def __getitem__(self, idx):
         return self.data
+
+class MyMAG240MDataset(object):
+    def __init__(self, data_dir, in_memory=False):
+        self.data_dir = data_dir
+        self.in_memory = in_memory
+        self.load_data()
+
+    def __getitem__(self, idx):
+        assert idx == 0
+        return self.data
+
+    def get_idx_split(self):
+        return self.idx_split
+
+    def load_data(self):
+        x = torch.from_numpy(np.load(osp.join(self.data_dir, 'processed/paper/node_feat.npy'), mmap_mode=None if self.in_memory else 'r'))
+        y = torch.from_numpy(np.load(osp.join(self.data_dir, 'processed/paper/node_label.npy')))
+        edge_index = torch.from_numpy(np.load(osp.join(self.data_dir, 'processed/paper___cites___paper/edge_index.npy')))
+        self.data = Data(x, y, edge_index)
+        self.num_classes = num_classes_dict["mag240M"]
+        self.idx_split = torch.load(osp.join(self.data_dir, 'split_dict.pt'))

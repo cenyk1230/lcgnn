@@ -42,21 +42,26 @@ def calc_local_clustering(args):
 
 def step1_local_clustering(task, name, ego_size=128, num_iter=1000, log_steps=10000, num_workers=16, method='acl'):
     dataset = create_dataset(name=f'{task}-{name}')
+    print('dataset loaded')
     data = dataset[0]
+
+    idx_split = dataset.get_idx_split()
+    if not isinstance(idx_split["train"], np.ndarray):
+        train_idx = idx_split["train"].cpu().numpy()
+        valid_idx = idx_split["valid"].cpu().numpy()
+        test_idx = idx_split["test"].cpu().numpy()
+    else:
+        train_idx, valid_idx, test_idx = idx_split["train"], idx_split["valid"], idx_split["test"]
 
     N = data.num_nodes
     edge_index = data.edge_index
     edge_index = to_undirected(edge_index)
+    print('transfer to undirected')
     adj = csr_matrix((np.ones(edge_index.shape[1]), edge_index), shape=(N, N))
 
     global graphlocal
     graphlocal = GraphLocal.from_sparse_adjacency(adj)
     print('graphlocal generated')
-
-    idx_split = dataset.get_idx_split()
-    train_idx = idx_split["train"].cpu().numpy()
-    valid_idx = idx_split["valid"].cpu().numpy()
-    test_idx = idx_split["test"].cpu().numpy()
 
     with multiprocessing.Pool(num_workers) as pool:
         ego_graphs_train, conds_train = zip(*pool.imap(calc_local_clustering, [(i, log_steps, num_iter, ego_size, method) for i in train_idx], chunksize=512))
@@ -204,7 +209,7 @@ if __name__ == "__main__":
     if not os.path.exists('data'):
         os.makedirs('data')
 
-    if args.task == 'ogbn':
+    if args.task in ['ogbn', 'lsc']:
         step1_local_clustering(task=args.task, name=args.dataset, ego_size=args.ego_size, num_iter=args.num_iter, log_steps=args.log_steps, num_workers=args.num_workers, method=args.method)
     else:
         step1_inductive(task=args.task, name=args.dataset, ego_size=args.ego_size, num_iter=args.num_iter, log_steps=args.log_steps, num_workers=args.num_workers, method=args.method)
