@@ -10,7 +10,7 @@ PATH_DICT = {
     "amazon": "./dataset/AmazonSaint/processed/data.pt",
 }
 
-num_classes_dict = dict(products=47, papers100M=172, mag240M=153)
+num_classes_dict = dict(products=47, papers100M=172, mag240M=153, mag=349)
 
 class Data(object):
     def __init__(self, x, y, edge_index=None):
@@ -66,6 +66,33 @@ class SAINTDataset(object):
         }
 
     def __getitem__(self, idx):
+        return self.data
+
+class MyMAGDataset(object):
+    def __init__(self, data_dir):
+        self.data_dir = data_dir
+        self.load_data()
+
+    def load_data(self):
+        x = torch.from_numpy(np.load(osp.join(self.data_dir, 'processed/paper_feat.npy')))
+        data = torch.load(osp.join(self.data_dir, 'processed/data.pt'))[0]
+        y = data.y
+        edge_index = data['edge_index'][:, (data['edge_index']<736389).sum(0) == 2]
+        self.data = Data(x, y, edge_index)
+        self.num_classes = num_classes_dict["mag"]
+        self.train_idx = data.train_mask.numpy()
+        self.val_idx = data.val_mask.numpy()
+        self.test_idx = data.test_mask.numpy()
+
+    def get_idx_split(self):
+        return {
+            "train": self.train_idx,
+            "valid": self.val_idx,
+            "test": self.test_idx,
+        }
+
+    def __getitem__(self, idx):
+        assert idx == 0
         return self.data
 
 class MyMAG240MDataset(object):

@@ -10,7 +10,7 @@ from tqdm import tqdm
 from sklearn.metrics import f1_score
 
 import wandb
-from mydataset import MyMAG240MDataset, MyNodePropPredDataset, SAINTDataset
+from mydataset import MyMAG240MDataset, MyMAGDataset, MyNodePropPredDataset, SAINTDataset
 # from line_profiler import LineProfiler
 from ogb.nodeproppred import PygNodePropPredDataset
 from optim_schedule import NoamOptim, LinearOptim
@@ -198,6 +198,8 @@ def main():
         dataset = MyNodePropPredDataset(name=args.dataset)
     elif args.dataset == 'mag240m':
         dataset = MyMAG240MDataset(data_dir='/home/yukuo/mag240m_kddcup2021')
+    elif args.dataset == 'mag':
+        dataset = MyMAGDataset(data_dir='/home/yukuo/LCGNN-Homo-Hetero/data/ogbn_mag')
     elif args.dataset in ['flickr', 'reddit', 'yelp', 'amazon']:
         dataset = SAINTDataset(name=args.dataset)
     else:
@@ -213,7 +215,7 @@ def main():
         conds_unpadded = np.load(f'data/{args.dataset}-lc-{args.method}-conds-{args.ego_size}.npy', allow_pickle=True)
     else:
         tmp_ego_size = 256 if args.dataset == 'products' else args.ego_size
-        if args.dataset == 'mag240m':
+        if args.dataset in ['mag', 'mag240m']:
             tmp_ego_size = 128
         if args.ego_size < 64:
             tmp_ego_size = 64
@@ -349,8 +351,9 @@ def main():
                 best_val_acc = valid_acc
                 # cor_train_acc, _ = test(model, train_loader, device, args)
                 # train_output = f'Train: {100 * cor_train_acc:.2f}%, '
-                # cor_test_acc, cor_test_loss = test(model, test_loader, device, args)
-                # test_output = f'Test: {100 * cor_test_acc:.2f}%'
+                if args.dataset != 'mag240m':
+                    cor_test_acc, cor_test_loss = test(model, test_loader, device, args)
+                    test_output = f'Test: {100 * cor_test_acc:.2f}%'
                 patience = 0
                 try:
                     if torch.cuda.device_count() > 1:
@@ -365,8 +368,11 @@ def main():
                 if patience >= args.early_stopping:
                     print('Early stopping...')
                     break
-            wandb.log({'Train Loss': loss, 'Valid Acc': valid_acc, 'Valid Loss': valid_loss, 'best_val_acc': best_val_acc,
-                      'LR': get_lr(optimizer)}) # , 'cor_test_acc': cor_test_acc, 'cor_test_loss': cor_test_loss})
+            log_dict = {'Train Loss': loss, 'Valid Acc': valid_acc, 'Valid Loss': valid_loss, 'best_val_acc': best_val_acc,
+                        'LR': get_lr(optimizer)}
+            if args.dataset != 'mag240m':
+                log_dict.update({'cor_test_acc': cor_test_acc, 'cor_test_loss': cor_test_loss})
+            wandb.log(log_dict)
         else:
             wandb.log({'Train Loss': loss, 'LR': get_lr(optimizer)})
         # train_output + 
